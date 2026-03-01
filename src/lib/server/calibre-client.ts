@@ -604,10 +604,145 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 			}
 		})();
 
-		console.log(`[calibre-db] Done — book id=${bookId} registered in Calibre library`);
-		return bookId;
+	console.log(`[calibre-db] Done — book id=${bookId} registered in Calibre library`);
+	return bookId;
 	} catch (err) {
 		console.error(`[calibre-db] Failed to add "${flatFilePath}" to Calibre:`, err);
 		return null;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cover backfill
+// ---------------------------------------------------------------------------
+
+export interface CoverBackfillEvent {
+	type: 'start' | 'done' | 'skip';
+	bookId: number;
+	title: string;
+	author: string;
+	/** Only on 'done' */
+	success?: boolean;
+	/** Only on 'done' — where the cover came from */
+	source?: 'epub' | 'openlibrary' | 'google' | 'none';
+	/** Running totals, present on every event */
+	processed: number;
+	total: number;
+}
+
+/**
+ * Async generator that fetches covers for every book in the Calibre library
+ * that currently has has_cover = 0.
+ *
+ * Yields a CoverBackfillEvent for each book: first a 'start' event when
+ * processing begins, then a 'done' event when the cover has been fetched (or
+ * failed). Books that already have a cover.jpg on disk are emitted as 'skip'.
+ *
+ * Never throws — individual failures are reported via success=false.
+ */
+export async function* backfillCovers(): AsyncGenerator<CoverBackfillEvent> {
+	const db = await getDb();
+
+	// Pull every book that doesn't have a cover yet
+	const rows = db.prepare(`
+		SELECT b.id, b.title, b.path,
+		       a.name AS author
+		FROM   books b
+		LEFT JOIN books_authors_link bal ON bal.book = b.id
+		LEFT JOIN authors a              ON a.id = bal.author
+		WHERE  b.has_cover = 0
+		ORDER  BY b.id
+	`).all() as Array<{ id: number; title: string; path: string; author: string | null }>;
+
+	const total = rows.length;
+	let processed = 0;
+
+	for (const row of rows) {
+		const { id: bookId, title, path: relPath } = row;
+		const author = row.author ?? 'Unknown';
+		const absDir = path.join(env.BOOKS_DIR, relPath);
+
+		// If cover.jpg already exists on disk (DB just hasn't been updated), skip
+		const coverPath = path.join(absDir, 'cover.jpg');
+		try {
+			await fs.access(coverPath);
+			// File exists — update DB and skip
+			db.prepare('UPDATE books SET has_cover = 1 WHERE id = ?').run(bookId);
+			processed++;
+			yield { type: 'skip', bookId, title, author, processed, total };
+			continue;
+		} catch {
+			// cover.jpg doesn't exist — proceed
+		}
+
+		yield { type: 'start', bookId, title, author, processed, total };
+
+		let coverBytes: Uint8Array | Buffer | null = null;
+		let source: CoverBackfillEvent['source'] = 'none';
+
+		try {
+			// Try extracting from the EPUB file if one exists
+			const dataRows = db.prepare(
+				`SELECT name, format FROM data WHERE book = ? AND format = 'EPUB'`
+			).all(bookId) as Array<{ name: string; format: string }>;
+
+			if (dataRows.length > 0) {
+				const epubName = dataRows[0].name;
+				const epubPath = path.join(absDir, `${epubName}.epub`);
+				try {
+					const buf = await fs.readFile(epubPath);
+					const zip = unzipSync(new Uint8Array(buf));
+					const containerXml = zip['META-INF/container.xml'];
+					if (containerXml) {
+						const containerStr = strFromU8(containerXml);
+						const opfMatch = containerStr.match(/full-path="([^"]+\.opf)"/i);
+						if (opfMatch) {
+							const opfPath = opfMatch[1];
+							const opfData = zip[opfPath];
+							if (opfData) {
+								const opf = strFromU8(opfData);
+								const extracted = extractEpubCover(zip, opf, opfPath);
+								if (extracted) {
+									coverBytes = extracted;
+									source = 'epub';
+								}
+							}
+						}
+					}
+				} catch {
+					// EPUB unreadable — fall through to remote
+				}
+			}
+
+			// Remote fallback
+			if (!coverBytes) {
+				const olCover = await fetchOpenLibraryCover(title, author);
+				if (olCover) {
+					coverBytes = olCover;
+					source = 'openlibrary';
+				} else {
+					const gCover = await fetchGoogleBooksCover(title, author);
+					if (gCover) {
+						coverBytes = gCover;
+						source = 'google';
+					}
+				}
+			}
+
+			if (coverBytes) {
+				const saved = await saveCover(coverBytes, absDir);
+				if (saved) {
+					db.prepare('UPDATE books SET has_cover = 1 WHERE id = ?').run(bookId);
+				} else {
+					source = 'none';
+				}
+			}
+		} catch (err) {
+			console.error(`[calibre-db] backfill error for book id=${bookId}:`, err);
+			source = 'none';
+		}
+
+		processed++;
+		yield { type: 'done', bookId, title, author, success: source !== 'none', source, processed, total };
 	}
 }

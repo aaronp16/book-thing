@@ -22,27 +22,51 @@ function getBaseUrl(): string {
 
 /**
  * Login to Calibre-Web and store the session cookie.
+ * Calibre-Web uses Flask-WTF CSRF protection, so we must first GET the login
+ * page to extract the csrf_token hidden field, then POST it back.
  */
 async function login(): Promise<void> {
-	const url = `${getBaseUrl()}/login`;
+	const baseUrl = getBaseUrl();
+
+	// Step 1: GET the login page to obtain CSRF token and initial session cookie
+	console.log(`[calibre] Fetching login page for CSRF token: ${baseUrl}/login`);
+	const getResponse = await fetch(`${baseUrl}/login`, { method: 'GET' });
+	console.log(`[calibre] Login page response: ${getResponse.status}`);
+
+	const html = await getResponse.text();
+	const csrfMatch = html.match(/name="csrf_token"[^>]*value="([^"]+)"/);
+	if (!csrfMatch) {
+		throw new Error(`Calibre-Web: could not find csrf_token in login page (status ${getResponse.status})`);
+	}
+	const csrfToken = csrfMatch[1];
+	console.log(`[calibre] Got CSRF token: ${csrfToken.slice(0, 10)}...`);
+
+	// Capture the initial session cookie from the GET response (required for CSRF validation)
+	const getCookie = getResponse.headers.get('set-cookie');
+	const initialSession = getCookie?.match(/session=([^;]+)/)?.[1];
+	console.log(`[calibre] Initial session cookie: ${initialSession ? 'present' : '(none)'}`);
+
+	// Step 2: POST login with CSRF token
+	const url = `${baseUrl}/login`;
 	console.log(`[calibre] Logging in to ${url} as "${env.CALIBRE_WEB_USERNAME}"...`);
 
 	const response = await fetch(url, {
 		method: 'POST',
 		headers: {
-			'Content-Type': 'application/x-www-form-urlencoded'
+			'Content-Type': 'application/x-www-form-urlencoded',
+			...(initialSession ? { 'Cookie': `session=${initialSession}` } : {})
 		},
 		body: new URLSearchParams({
 			username: env.CALIBRE_WEB_USERNAME,
 			password: env.CALIBRE_WEB_PASSWORD,
-			next: '/'
+			next: '/',
+			csrf_token: csrfToken
 		}),
-		redirect: 'manual' // Don't follow redirect — we just want the Set-Cookie header
+		redirect: 'manual'
 	});
 
 	console.log(`[calibre] Login response: ${response.status} ${response.statusText}`);
 
-	// Calibre-Web redirects on successful login (302), returns 200 on failure
 	const setCookie = response.headers.get('set-cookie');
 	console.log(`[calibre] Set-Cookie header: ${setCookie ?? '(none)'}`);
 

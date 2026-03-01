@@ -108,6 +108,182 @@ function parseFilenameAuthor(filename: string): string {
 	return parseFilename(filename).author;
 }
 
+/**
+ * Read title and author from a MOBI or AZW3 file.
+ *
+ * MOBI is a PalmDB file. The header layout:
+ *   0x00–0x1F  PalmDB name (null-padded, often the title)
+ *   0x4C       number of records (2 bytes big-endian)
+ *   0x4E+      record list: each entry is 8 bytes (4 offset + 1 attr + 3 uniqueID)
+ *
+ * Record 0 is the MobiHeader. Within it, after the PalmDOC header (32 bytes):
+ *   +0x00  "MOBI" magic
+ *   +0x04  header length
+ *   +0x14  title offset (relative to start of record 0)
+ *   +0x18  title length
+ *
+ * After the MOBI header comes the EXTH block (if present):
+ *   MOBI header offset + MOBI header length
+ *   "EXTH" magic, 4-byte total length, 4-byte record count
+ *   Each record: 4-byte type, 4-byte length (including type+length), data
+ *     type 100 = author, type 503 = updated title
+ *
+ * We read only the first ~16 KB to keep it fast.
+ */
+async function readMobiMeta(filePath: string): Promise<{ title: string; author: string }> {
+	const filename = path.basename(filePath);
+	try {
+		// Read enough to cover the PalmDB header, record list, and record 0 content
+		const fh = await fs.open(filePath, 'r');
+		const headerBuf = Buffer.alloc(16384);
+		const { bytesRead } = await fh.read(headerBuf, 0, 16384, 0);
+		await fh.close();
+		const buf = headerBuf.subarray(0, bytesRead);
+
+		if (buf.length < 78) throw new Error('File too small');
+
+		// PalmDB: number of records at 0x4C
+		const numRecords = buf.readUInt16BE(0x4c);
+		if (numRecords < 1) throw new Error('No PalmDB records');
+
+		// Record 0 offset is at 0x4E (first record list entry, first 4 bytes)
+		const rec0Offset = buf.readUInt32BE(0x4e);
+		if (rec0Offset + 32 > buf.length) throw new Error('Record 0 out of range');
+
+		// PalmDOC header is 32 bytes, then MOBI header starts
+		const mobiStart = rec0Offset + 32;
+		if (mobiStart + 4 > buf.length) throw new Error('MOBI header out of range');
+
+		const mobiMagic = buf.subarray(mobiStart, mobiStart + 4).toString('ascii');
+		if (mobiMagic !== 'MOBI') throw new Error(`Expected MOBI magic, got "${mobiMagic}"`);
+
+		const mobiHeaderLen = buf.readUInt32BE(mobiStart + 4);
+
+		// Title is embedded in record 0 at a given offset + length
+		const titleOffset = buf.readUInt32BE(mobiStart + 0x14);
+		const titleLength = buf.readUInt32BE(mobiStart + 0x18);
+		const titleStart = rec0Offset + titleOffset;
+		let title: string | null = null;
+		if (titleLength > 0 && titleStart + titleLength <= buf.length) {
+			title = buf.subarray(titleStart, titleStart + titleLength).toString('utf8').trim();
+		}
+
+		// EXTH block starts immediately after the MOBI header
+		const exthStart = mobiStart + mobiHeaderLen;
+		let author: string | null = null;
+		let exthTitle: string | null = null;
+
+		if (exthStart + 12 <= buf.length) {
+			const exthMagic = buf.subarray(exthStart, exthStart + 4).toString('ascii');
+			if (exthMagic === 'EXTH') {
+				const exthRecordCount = buf.readUInt32BE(exthStart + 8);
+				let pos = exthStart + 12;
+				for (let i = 0; i < exthRecordCount && pos + 8 <= buf.length; i++) {
+					const recType = buf.readUInt32BE(pos);
+					const recLen = buf.readUInt32BE(pos + 4);
+					if (recLen < 8) break;
+					const data = buf.subarray(pos + 8, pos + recLen).toString('utf8').trim();
+					if (recType === 100) author = data;        // dc:creator
+					if (recType === 503) exthTitle = data;     // updated title
+					pos += recLen;
+				}
+			}
+		}
+
+		const finalTitle = (exthTitle || title || '').trim() || null;
+		const finalAuthor = (author || '').trim() || null;
+
+		if (finalTitle && finalAuthor) {
+			console.log(`[calibre-db] MOBI metadata: title="${finalTitle}" author="${finalAuthor}"`);
+			return { title: finalTitle, author: finalAuthor };
+		}
+		if (finalTitle) {
+			return { title: finalTitle, author: parseFilenameAuthor(filename) };
+		}
+		throw new Error('No title found in MOBI headers');
+	} catch (err) {
+		console.warn(`[calibre-db] Could not read MOBI metadata from "${filename}": ${err} — falling back to filename`);
+		return parseFilename(filename);
+	}
+}
+
+/**
+ * Read title and author from a PDF's Info dictionary.
+ *
+ * PDFs store document metadata in a trailer dictionary that references an Info
+ * object. We search the file for the Info object directly using a regex scan,
+ * which avoids implementing a full PDF parser while working on the vast majority
+ * of real-world PDFs.
+ *
+ * We read the last 64 KB (where the trailer and xref live) plus the first 64 KB
+ * (where early objects often live), then scan for /Title and /Author entries.
+ */
+async function readPdfMeta(filePath: string): Promise<{ title: string; author: string }> {
+	const filename = path.basename(filePath);
+	try {
+		const stat = await fs.stat(filePath);
+		const fh = await fs.open(filePath, 'r');
+
+		// Read first 64 KB + last 64 KB
+		const chunkSize = 65536;
+		const buf1 = Buffer.alloc(Math.min(chunkSize, stat.size));
+		await fh.read(buf1, 0, buf1.length, 0);
+		const tailOffset = Math.max(0, stat.size - chunkSize);
+		const buf2 = Buffer.alloc(Math.min(chunkSize, stat.size - tailOffset));
+		await fh.read(buf2, 0, buf2.length, tailOffset);
+		await fh.close();
+
+		const text = buf1.toString('latin1') + buf2.toString('latin1');
+
+		/**
+		 * PDF string values come in two forms:
+		 *   (literal string)         — may use \n, \r, \ooo octal escapes
+		 *   <hex bytes>              — UTF-16BE if starts with FEFF
+		 */
+		function decodePdfString(raw: string): string {
+			if (raw.startsWith('<')) {
+				// Hex string
+				const hex = raw.slice(1, -1).replace(/\s/g, '');
+				const bytes = Buffer.from(hex, 'hex');
+				// UTF-16BE BOM?
+				if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+					return bytes.subarray(2).toString('utf16le');
+				}
+				return bytes.toString('latin1');
+			}
+			// Literal string — strip outer parens, handle basic escapes
+			return raw
+				.slice(1, -1)
+				.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
+				.replace(/\\([0-7]{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)))
+				.replace(/\\(.)/g, '$1');
+		}
+
+		function extractField(field: string): string | null {
+			// Match /Field (value) or /Field <hexvalue>
+			const re = new RegExp(`/${field}\\s*(\\([^)]*\\)|<[^>]*>)`, 'i');
+			const m = text.match(re);
+			if (!m) return null;
+			return decodePdfString(m[1]).trim() || null;
+		}
+
+		const title = extractField('Title');
+		const author = extractField('Author');
+
+		if (title && author) {
+			console.log(`[calibre-db] PDF metadata: title="${title}" author="${author}"`);
+			return { title, author };
+		}
+		if (title) {
+			return { title, author: parseFilenameAuthor(filename) };
+		}
+		throw new Error('No /Title in PDF Info dictionary');
+	} catch (err) {
+		console.warn(`[calibre-db] Could not read PDF metadata from "${filename}": ${err} — falling back to filename`);
+		return parseFilename(filename);
+	}
+}
+
 /** "Roald Dahl" → "Dahl, Roald" */
 function authorSort(name: string): string {
 	const parts = name.trim().split(/\s+/);
@@ -140,7 +316,11 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 		const ext = path.extname(filename).toLowerCase().slice(1); // "epub"
 		const { title, author } = ext === 'epub'
 			? await readEpubMeta(flatFilePath)
-			: parseFilename(filename);
+			: ext === 'mobi' || ext === 'azw3' || ext === 'azw'
+				? await readMobiMeta(flatFilePath)
+				: ext === 'pdf'
+					? await readPdfMeta(flatFilePath)
+					: parseFilename(filename);
 
 		console.log(`[calibre-db] Adding "${title}" by "${author}" (${ext})`);
 

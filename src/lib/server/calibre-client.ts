@@ -24,12 +24,24 @@ import { env } from './env.js';
 
 // node:sqlite is experimental in Node 22 — lazy-init so the warning fires once at startup
 let _db: any = null;
+let _booksUid: number | null = null;
+let _booksGid: number | null = null;
 
 async function getDb() {
 	if (_db) return _db;
 	const dbPath = path.join(env.BOOKS_DIR, 'metadata.db');
 	const { DatabaseSync } = await import('node:sqlite');
 	_db = new DatabaseSync(dbPath);
+
+	// Cache the UID/GID of BOOKS_DIR so new subdirectories can be chowned to
+	// match — the container runs as root but the volume is owned by the host user.
+	try {
+		const stat = await fs.stat(env.BOOKS_DIR);
+		_booksUid = stat.uid;
+		_booksGid = stat.gid;
+	} catch {
+		// Non-fatal — chown will just be skipped
+	}
 
 	// Calibre registers title_sort() and uuid4() as custom SQLite functions at
 	// runtime. The books_insert_trg and series_insert_trg triggers call them,
@@ -51,6 +63,22 @@ function sanitize(str: string): string {
 		.replace(/\s+/g, ' ')
 		.trim()
 		.slice(0, 80);
+}
+
+/**
+ * Create a directory (recursive) and chown it to match BOOKS_DIR's owner so
+ * that Calibre-Web (running as UID 1000) can rename/delete it even when
+ * book-thing runs as root inside Docker.
+ */
+async function mkdirOwned(dirPath: string): Promise<void> {
+	await fs.mkdir(dirPath, { recursive: true });
+	if (_booksUid !== null && _booksGid !== null) {
+		try {
+			await fs.chown(dirPath, _booksUid, _booksGid);
+		} catch {
+			// chown fails if not running as root — not fatal, ownership stays as-is
+		}
+	}
 }
 
 /**
@@ -556,7 +584,7 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 		// Build Calibre path: "Author Name/Title (book_id)"
 		const relPath = `${sanitize(author)}/${sanitize(title)} (${bookId})`;
 		const absDir = path.join(env.BOOKS_DIR, relPath);
-		await fs.mkdir(absDir, { recursive: true });
+		await mkdirOwned(absDir);
 
 		// Canonical Calibre filename: "Title - Author" (no extension)
 		const canonicalName = sanitize(`${title} - ${author}`);

@@ -133,23 +133,58 @@ function translateQBPath(contentPath: string): string {
 }
 
 /**
- * Pick the single best ebook file from a list of filenames based on Kobo format priority.
- * Returns the filename, or null if no recognised ebook format is found.
+ * Recursively collect all ebook file paths under a directory.
  */
-function pickBestEbook(filenames: string[]): string | null {
-	for (const ext of KOBO_FORMAT_PRIORITY) {
-		const match = filenames.find((f) => f.toLowerCase().endsWith(ext));
-		if (match) return match;
+async function collectEbooks(dirPath: string, results: string[] = []): Promise<string[]> {
+	const entries = await fs.readdir(dirPath, { withFileTypes: true });
+	for (const entry of entries) {
+		const fullPath = path.join(dirPath, entry.name);
+		if (entry.isDirectory()) {
+			await collectEbooks(fullPath, results);
+		} else if (entry.isFile()) {
+			const ext = path.extname(entry.name).toLowerCase();
+			if (KOBO_FORMAT_PRIORITY.includes(ext)) {
+				results.push(fullPath);
+			}
+		}
 	}
-	return null;
+	return results;
+}
+
+/**
+ * From a list of absolute ebook paths, pick one per unique stem (basename without
+ * extension) using Kobo format priority. This means for a series with one book per
+ * subfolder we get one file per book, and if a folder has e.g. both .epub and .pdf
+ * of the same title we take only the .epub.
+ */
+function pickBestPerBook(files: string[]): string[] {
+	// Group by lowercased stem so "Book One.epub" and "Book One.pdf" are the same key
+	const byTitle = new Map<string, string[]>();
+	for (const f of files) {
+		const stem = path.basename(f, path.extname(f)).toLowerCase();
+		if (!byTitle.has(stem)) byTitle.set(stem, []);
+		byTitle.get(stem)!.push(f);
+	}
+
+	const chosen: string[] = [];
+	for (const candidates of byTitle.values()) {
+		// Sort candidates by format priority, pick the best one
+		candidates.sort((a, b) => {
+			const ai = KOBO_FORMAT_PRIORITY.indexOf(path.extname(a).toLowerCase());
+			const bi = KOBO_FORMAT_PRIORITY.indexOf(path.extname(b).toLowerCase());
+			return ai - bi;
+		});
+		chosen.push(candidates[0]);
+	}
+	return chosen;
 }
 
 /**
  * Copy a completed download to the books/Calibre library directory.
  *
  * Only called from the download completion handler — does NOT retroactively
- * copy existing torrents. Picks the single best ebook format if the torrent
- * contains multiple files.
+ * copy existing torrents. Handles single files, flat directories, and nested
+ * series folders. Picks the best ebook format per book when multiple formats exist.
  *
  * @param contentPath - The content_path from qBittorrent (internal container path)
  */
@@ -164,46 +199,50 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 	const localPath = translateQBPath(contentPath);
 
 	try {
-		const stat = await fs.stat(localPath);
+		await fs.mkdir(booksDir, { recursive: true });
 
-		let srcFile: string;
+		const stat = await fs.stat(localPath);
+		let srcFiles: string[];
 
 		if (stat.isFile()) {
-			// Single-file torrent — use it directly if it's an ebook
+			// Single-file torrent
 			const ext = path.extname(localPath).toLowerCase();
 			if (!KOBO_FORMAT_PRIORITY.includes(ext)) {
 				console.warn(`[library] Skipping non-ebook file: ${localPath}`);
 				return;
 			}
-			srcFile = localPath;
+			srcFiles = [localPath];
 		} else if (stat.isDirectory()) {
-			// Multi-file torrent — pick the best ebook from the directory
-			const entries = await fs.readdir(localPath);
-			const best = pickBestEbook(entries);
-			if (!best) {
-				console.warn(`[library] No recognised ebook found in: ${localPath}`);
+			// Walk the entire directory tree and collect all ebook files
+			const allEbooks = await collectEbooks(localPath);
+			if (allEbooks.length === 0) {
+				console.warn(`[library] No recognised ebook files found in: ${localPath}`);
 				return;
 			}
-			srcFile = path.join(localPath, best);
+			// Pick the best format per unique book title
+			srcFiles = pickBestPerBook(allEbooks);
 		} else {
 			console.warn(`[library] Unexpected file type at: ${localPath}`);
 			return;
 		}
 
-		const destFile = path.join(booksDir, path.basename(srcFile));
-
-		// Don't overwrite existing files
-		try {
-			await fs.access(destFile);
-			console.log(`[library] Already exists, skipping: ${destFile}`);
-			return;
-		} catch {
-			// File doesn't exist — good, proceed with copy
+		let copied = 0;
+		let skipped = 0;
+		for (const srcFile of srcFiles) {
+			const destFile = path.join(booksDir, path.basename(srcFile));
+			try {
+				await fs.access(destFile);
+				console.log(`[library] Already exists, skipping: ${path.basename(destFile)}`);
+				skipped++;
+			} catch {
+				// File doesn't exist — copy it
+				await fs.copyFile(srcFile, destFile);
+				console.log(`[library] Copied to library: ${path.basename(srcFile)}`);
+				copied++;
+			}
 		}
 
-		await fs.mkdir(booksDir, { recursive: true });
-		await fs.copyFile(srcFile, destFile);
-		console.log(`[library] Copied to library: ${path.basename(srcFile)}`);
+		console.log(`[library] Done — ${copied} copied, ${skipped} skipped`);
 	} catch (err) {
 		console.error(`[library] Failed to copy book from ${localPath}:`, err);
 	}

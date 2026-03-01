@@ -23,11 +23,10 @@ import { env } from './env.js';
 // node:sqlite is experimental in Node 22 — lazy-init so the warning fires once at startup
 let _db: any = null;
 
-function getDb() {
+async function getDb() {
 	if (_db) return _db;
 	const dbPath = path.join(env.BOOKS_DIR, 'metadata.db');
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const { DatabaseSync } = require('node:sqlite');
+	const { DatabaseSync } = await import('node:sqlite');
 	_db = new DatabaseSync(dbPath);
 	return _db;
 }
@@ -324,7 +323,7 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 
 		console.log(`[calibre-db] Adding "${title}" by "${author}" (${ext})`);
 
-		const db = getDb();
+		const db = await getDb();
 		const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '+00:00');
 		const uuid = randomUUID();
 

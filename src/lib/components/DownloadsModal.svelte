@@ -1,17 +1,16 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import TorrentSidebar from './TorrentSidebar.svelte';
-	import type { DownloadJob, HttpDownloadJob } from '$lib/types';
+	import type { DownloadJob } from '$lib/types';
 
 	interface Props {
 		isOpen: boolean;
 		onClose: () => void;
 		fetchingJobs: DownloadJob[];
-		annaHttpJobs?: HttpDownloadJob[];
 		onCountChange?: (count: number) => void;
 	}
 
-	let { isOpen, onClose, fetchingJobs, annaHttpJobs = [], onCountChange }: Props = $props();
+	let { isOpen, onClose, fetchingJobs, onCountChange }: Props = $props();
 
 	function handleBackdropClick(e: MouseEvent) {
 		if (e.target === e.currentTarget) {
@@ -67,7 +66,7 @@
 
 			<!-- Torrents content -->
 			<div class="flex-1 overflow-hidden">
-				<TorrentSidebar {fetchingJobs} {annaHttpJobs} {onCountChange} />
+				<TorrentSidebar {fetchingJobs} {onCountChange} />
 			</div>
 		</div>
 	</div>

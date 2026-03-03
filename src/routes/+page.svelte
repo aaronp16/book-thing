@@ -1,32 +1,21 @@
 <script lang="ts">
 	import ResultsGrid from '$lib/components/ResultsGrid.svelte';
-	import AnnaBookCard from '$lib/components/AnnaBookCard.svelte';
 	import TorrentSidebar from '$lib/components/TorrentSidebar.svelte';
 	import LibraryPanel from '$lib/components/LibraryPanel.svelte';
 	import MobileTabBar, { type MobileTab } from '$lib/components/MobileTabBar.svelte';
 	import DownloadsModal from '$lib/components/DownloadsModal.svelte';
 	import DownloadsHeaderIndicator from '$lib/components/DownloadsHeaderIndicator.svelte';
-	import type {
-		BookResult,
-		SearchField,
-		DownloadJob,
-		AnnaSearchResult,
-		HttpDownloadJob
-	} from '$lib/types';
+	import type { BookResult, SearchField, DownloadJob } from '$lib/types';
 	import { toasts } from '$lib/stores/toasts';
 	import { onMount } from 'svelte';
 
 	// Search state
 	let searchField: SearchField = $state('title');
 	let searchQuery: string = $state('');
-	let searchSource: 'mam' | 'anna' = $state('anna');
 
 	// MAM results
 	let books: BookResult[] = $state([]);
 	let totalResults: number = $state(0);
-
-	// Anna's Archive results
-	let annaBooks: AnnaSearchResult[] = $state([]);
 
 	let loading = $state(false);
 	let hasSearched = $state(false);
@@ -35,14 +24,8 @@
 	// Track downloading book IDs (to prevent duplicate downloads)
 	let downloadingIds = $state<Set<number>>(new Set());
 
-	// Track Anna's Archive downloading MD5s
-	let annaDownloadingMd5s = $state<Set<string>>(new Set());
-
 	// Jobs still being fetched from MAM / in early stages before qBittorrent picks them up
 	let fetchingJobs = $state<DownloadJob[]>([]);
-
-	// Active Anna's Archive HTTP download jobs
-	let annaHttpJobs = $state<HttpDownloadJob[]>([]);
 
 	// Sidebar ref for triggering refresh
 	let sidebarRef: TorrentSidebar | undefined = $state();
@@ -96,64 +79,29 @@
 		return currIndex > prevIndex ? 'tab-slide-left' : 'tab-slide-right';
 	});
 
-	function handleSourceChange(source: 'mam' | 'anna') {
-		searchSource = source;
-		// Clear previous results immediately
-		books = [];
-		annaBooks = [];
-		totalResults = 0;
-		error = null;
-		// Re-run the search in the new source if a query is already present
-		if (searchQuery.trim()) {
-			performSearch(searchQuery.trim(), searchField);
-		} else {
-			hasSearched = false;
-		}
-	}
-
 	async function performSearch(query: string, field: SearchField) {
 		loading = true;
 		error = null;
 		hasSearched = true;
 
-		if (searchSource === 'anna') {
-			try {
-				const response = await fetch(`/api/anna/search?q=${encodeURIComponent(query)}`);
-				const data = await response.json();
-				if (!response.ok) throw new Error(data.error || 'Search failed');
-				annaBooks = data.results;
-				books = [];
-				totalResults = data.results.length;
-			} catch (e) {
-				const message = e instanceof Error ? e.message : 'Search failed';
-				error = message;
-				toasts.error(message);
-				annaBooks = [];
-				totalResults = 0;
-			} finally {
-				loading = false;
-			}
-		} else {
-			try {
-				const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&field=${field}`);
-				const data = await response.json();
+		try {
+			const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&field=${field}`);
+			const data = await response.json();
 
-				if (!response.ok) {
-					throw new Error(data.error || 'Search failed');
-				}
-
-				books = data.results;
-				annaBooks = [];
-				totalResults = data.total;
-			} catch (e) {
-				const message = e instanceof Error ? e.message : 'Search failed';
-				error = message;
-				toasts.error(message);
-				books = [];
-				totalResults = 0;
-			} finally {
-				loading = false;
+			if (!response.ok) {
+				throw new Error(data.error || 'Search failed');
 			}
+
+			books = data.results;
+			totalResults = data.total;
+		} catch (e) {
+			const message = e instanceof Error ? e.message : 'Search failed';
+			error = message;
+			toasts.error(message);
+			books = [];
+			totalResults = 0;
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -174,7 +122,6 @@
 		searchQuery = '';
 		hasSearched = false;
 		books = [];
-		annaBooks = [];
 		totalResults = 0;
 		error = null;
 	}
@@ -270,83 +217,8 @@
 		}
 	}
 
-	async function handleAnnaDownload(book: AnnaSearchResult) {
-		if (annaDownloadingMd5s.has(book.md5)) {
-			toasts.warning('Already downloading this book');
-			return;
-		}
-
-		annaDownloadingMd5s = new Set([...annaDownloadingMd5s, book.md5]);
-
-		// Auto-switch to downloads tab on mobile
-		if (isMobile && mobileTab !== 'downloads') {
-			handleMobileTabChange('downloads');
-		}
-
-		try {
-			const response = await fetch('/api/anna/download', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ md5: book.md5, title: book.title, authors: book.authors })
-			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to start download');
-			}
-
-			const jobId = data.jobId;
-			toasts.success(`Started downloading: ${book.title}`);
-
-			const eventSource = new EventSource(`/api/anna/progress/${jobId}`);
-
-			eventSource.onmessage = (event) => {
-				const payload = JSON.parse(event.data);
-
-				if (payload.type === 'progress') {
-					const job = payload as HttpDownloadJob;
-					// Update or insert the job in our local list
-					const existing = annaHttpJobs.findIndex((j) => j.id === job.id);
-					if (existing >= 0) {
-						annaHttpJobs = annaHttpJobs.map((j) => (j.id === job.id ? job : j));
-					} else {
-						annaHttpJobs = [...annaHttpJobs, job];
-					}
-				} else if (payload.type === 'done') {
-					const { status, error: jobError } = payload as { status: string; error?: string };
-					if (status === 'complete') {
-						toasts.success(`Download complete: ${book.title}`);
-						setTimeout(() => libraryPanelRef?.refresh(), 1000);
-					} else if (status === 'error') {
-						toasts.error(`Download failed: ${jobError || 'Unknown error'}`);
-					}
-
-					eventSource.close();
-					annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-					// Remove the job from the list after a short delay so the user sees 100%
-					setTimeout(() => {
-						annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
-					}, 3000);
-				}
-			};
-
-			eventSource.onerror = () => {
-				eventSource.close();
-				annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-				annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
-			};
-		} catch (e) {
-			const message = e instanceof Error ? e.message : 'Failed to start download';
-			toasts.error(message);
-			annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-		}
-	}
-
-	// Total active download count (MAM + Anna)
-	const totalDownloadingCount = $derived(
-		downloadingCount + annaHttpJobs.filter((j) => j.status === 'downloading').length
-	);
+	// Total active download count
+	const totalDownloadingCount = $derived(downloadingCount);
 </script>
 
 <div class="flex h-full w-full">
@@ -430,44 +302,10 @@
 								? 'Search by book title...'
 								: 'Search by author name...'}
 							class="w-full rounded-full border-0 bg-neutral-800 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none {searchQuery
-								? 'pr-24'
-								: 'pr-14'}"
+								? 'pr-10'
+								: 'pr-4'}"
 							disabled={loading}
 						/>
-
-						<!-- Source selector — right side of input -->
-						<div
-							class="absolute inset-y-0 right-0 flex items-center {searchQuery ? 'pr-9' : 'pr-3'}"
-						>
-							<div class="flex items-center rounded-full bg-neutral-700/60 px-2 py-1">
-								<select
-									value={searchSource}
-									onchange={(e) =>
-										handleSourceChange(
-											(e.currentTarget as HTMLSelectElement).value as 'mam' | 'anna'
-										)}
-									class="cursor-pointer appearance-none border-0 bg-transparent bg-none text-xs font-medium text-neutral-300 outline-none"
-									aria-label="Search source"
-								>
-									<option value="mam">MAM</option>
-									<option value="anna">Anna's</option>
-								</select>
-								<!-- Chevron icon -->
-								<svg
-									class="pointer-events-none ml-1 h-3 w-3 flex-shrink-0 text-neutral-400"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2.5"
-										d="M19 9l-7 7-7-7"
-									/>
-								</svg>
-							</div>
-						</div>
 
 						<!-- Clear button -->
 						{#if searchQuery}
@@ -531,54 +369,12 @@
 							<p class="mt-4 text-neutral-500">Searching...</p>
 						</div>
 					{:else if hasSearched}
-						{#if searchSource === 'anna'}
-							<!-- Anna's Archive results -->
-							{#if annaBooks.length === 0}
-								<div class="flex flex-col items-center justify-center py-16 text-center">
-									<svg
-										class="mb-4 h-16 w-16 text-neutral-700"
-										fill="none"
-										stroke="currentColor"
-										viewBox="0 0 24 24"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="1.5"
-											d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-										/>
-									</svg>
-									<p class="text-lg font-medium text-neutral-400">No results found</p>
-									<p class="mt-1 text-sm text-neutral-500">Try a different search term</p>
-								</div>
-							{:else}
-								<div class="flex flex-col gap-4">
-									<div class="animate-fade-in flex items-center justify-between">
-										<h2 class="text-lg font-semibold text-white">Results</h2>
-										<span class="text-sm text-neutral-500">{annaBooks.length} results</span>
-									</div>
-									<div class="flex flex-col gap-1">
-										{#each annaBooks as book (book.md5)}
-											<div class="animate-fade-in">
-												<AnnaBookCard
-													{book}
-													onDownload={handleAnnaDownload}
-													downloading={annaDownloadingMd5s.has(book.md5)}
-												/>
-											</div>
-										{/each}
-									</div>
-								</div>
-							{/if}
-						{:else}
-							<!-- MAM results -->
-							<ResultsGrid
-								{books}
-								total={totalResults}
-								onDownload={handleDownload}
-								{downloadingIds}
-							/>
-						{/if}
+						<ResultsGrid
+							{books}
+							total={totalResults}
+							onDownload={handleDownload}
+							{downloadingIds}
+						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center py-16 text-center">
 							<svg
@@ -621,11 +417,7 @@
 						<h1 class="text-2xl font-bold text-white sm:text-3xl">Downloads</h1>
 					</div>
 					<div class="flex-1 overflow-hidden px-4 pb-20">
-						<TorrentSidebar
-							{fetchingJobs}
-							{annaHttpJobs}
-							onCountChange={(count) => (downloadingCount = count)}
-						/>
+						<TorrentSidebar {fetchingJobs} onCountChange={(count) => (downloadingCount = count)} />
 					</div>
 				</div>
 			{/key}
@@ -662,6 +454,5 @@
 	isOpen={isDownloadsModalOpen}
 	onClose={closeDownloadsModal}
 	{fetchingJobs}
-	{annaHttpJobs}
 	onCountChange={(count) => (downloadingCount = count)}
 />

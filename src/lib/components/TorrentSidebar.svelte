@@ -1,19 +1,17 @@
 <script lang="ts">
-	import type { TorrentInfo, DownloadJob, HttpDownloadJob } from '$lib/types';
+	import type { TorrentInfo, DownloadJob } from '$lib/types';
 	import CoverBackfill from './CoverBackfill.svelte';
 
 	interface Props {
 		/** Jobs still being fetched from MAM (before qBittorrent has them) */
 		fetchingJobs?: DownloadJob[];
-		/** Active Anna's Archive HTTP download jobs */
-		annaHttpJobs?: HttpDownloadJob[];
 		/** Whether to show the large title (mobile full-screen mode) */
 		showTitle?: boolean;
 		/** Callback when the downloading count changes */
 		onCountChange?: (count: number) => void;
 	}
 
-	let { fetchingJobs = [], annaHttpJobs = [], showTitle = false, onCountChange }: Props = $props();
+	let { fetchingJobs = [], showTitle = false, onCountChange }: Props = $props();
 
 	let torrents = $state<TorrentInfo[]>([]);
 	let activeTab = $state<'downloading' | 'seeding'>('downloading');
@@ -46,9 +44,7 @@
 
 	const seeding = $derived(torrents.filter((t) => t.status === 'seeding'));
 
-	const activeAnnaJobs = $derived(annaHttpJobs.filter((j) => j.status === 'downloading'));
-
-	const totalDownloading = $derived(downloading.length + activeAnnaJobs.length);
+	const totalDownloading = $derived(downloading.length);
 
 	// Notify parent when downloading count changes
 	$effect(() => {
@@ -87,8 +83,7 @@
 
 	// Start/stop polling based on whether there are active downloads
 	$effect(() => {
-		const hasActive =
-			downloading.length > 0 || fetchingJobs.length > 0 || activeAnnaJobs.length > 0;
+		const hasActive = downloading.length > 0 || fetchingJobs.length > 0;
 		if (hasActive) {
 			startPolling();
 		} else {
@@ -226,51 +221,6 @@
 									<span>{torrent.numPeers} peers</span>
 								{/if}
 								{#if torrent.downloadSpeed === 0 && torrent.numPeers === 0}
-									<span>Connecting...</span>
-								{/if}
-							</div>
-						</div>
-					{/each}
-
-					<!-- Anna's Archive HTTP downloads -->
-					{#each activeAnnaJobs as job (job.id)}
-						<div class="rounded-lg bg-neutral-800/50 p-3">
-							<div class="mb-2 flex items-center justify-between gap-2">
-								<span class="truncate text-sm text-white">{job.title}</span>
-								<div class="flex flex-shrink-0 items-center gap-1.5">
-									<span
-										class="rounded bg-neutral-700 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400"
-										>AA</span
-									>
-									{#if job.progress >= 0}
-										<span class="text-xs font-medium text-neutral-400">
-											{Math.round(job.progress * 100)}%
-										</span>
-									{/if}
-								</div>
-							</div>
-							<div class="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
-								{#if job.progress >= 0}
-									<div
-										class="h-full bg-blue-500 transition-all duration-300"
-										style="width: {Math.round(job.progress * 100)}%"
-									></div>
-								{:else}
-									<!-- Indeterminate progress bar -->
-									<div
-										class="h-full w-1/3 animate-[slide_1.5s_ease-in-out_infinite] rounded-full bg-blue-500"
-									></div>
-								{/if}
-							</div>
-							<div class="mt-1.5 flex items-center gap-3 text-xs text-neutral-500">
-								{#if job.downloadSpeed > 0}
-									<span>{formatSpeed(job.downloadSpeed)}</span>
-								{/if}
-								{#if job.bytesDownloaded > 0 && job.totalBytes > 0}
-									<span>{formatBytes(job.bytesDownloaded)} / {formatBytes(job.totalBytes)}</span>
-								{:else if job.bytesDownloaded > 0}
-									<span>{formatBytes(job.bytesDownloaded)}</span>
-								{:else}
 									<span>Connecting...</span>
 								{/if}
 							</div>

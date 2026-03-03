@@ -96,64 +96,6 @@ export interface DownloadJob {
 	error?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Anna's Archive types
-// ---------------------------------------------------------------------------
-
-/** A search result from Anna's Archive */
-export interface AnnaSearchResult {
-	/** MD5 hash — unique identifier for this file on Anna's Archive */
-	md5: string;
-	title: string;
-	authors: string;
-	coverUrl?: string;
-	extension: string;
-	sizeBytes: number;
-	year?: number;
-	language?: string;
-	/** Publisher name e.g. "Tor Books" */
-	publisher?: string;
-	/** Content type from AA e.g. "Book (fiction)", "Book (unknown)", "Magazine" */
-	contentType?: string;
-}
-
-/** Detailed book info fetched from an Anna's Archive MD5 page */
-export interface AnnaBookDetail {
-	md5: string;
-	title: string;
-	authors: string[];
-	coverUrl?: string;
-	description?: string;
-	extension: string;
-	publisher?: string;
-	year?: number;
-	language?: string;
-	isbn: string[];
-	downloadLinks: {
-		type: 'ipfs' | 'libgen_rs' | 'libgen_li' | 'zlib' | 'other';
-		url: string;
-		label: string;
-	}[];
-}
-
-/** An in-progress HTTP download from Anna's Archive */
-export interface HttpDownloadJob {
-	id: string;
-	source: 'anna';
-	md5: string;
-	title: string;
-	authors: string;
-	extension: string;
-	status: 'downloading' | 'complete' | 'error';
-	/** 0.0–1.0, or -1 if Content-Length is unknown */
-	progress: number;
-	bytesDownloaded: number;
-	/** -1 if Content-Length header was absent */
-	totalBytes: number;
-	downloadSpeed: number;
-	error?: string;
-}
-
 /** A file in the library */
 export interface LibraryFile {
 	name: string;

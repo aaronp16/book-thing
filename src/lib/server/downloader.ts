@@ -40,9 +40,14 @@ function notifyProgress(jobId: string, job: DownloadJob): void {
  *
  * @param mamId - MyAnonamouse torrent ID
  * @param title - Book title (for display)
+ * @param shelfIds - Shelf IDs to add book to after download completes
  * @returns Job ID for tracking progress
  */
-export async function startDownload(mamId: number, title: string): Promise<string> {
+export async function startDownload(
+	mamId: number,
+	title: string,
+	shelfIds: number[]
+): Promise<string> {
 	const jobId = generateJobId();
 
 	const job: DownloadJob = {
@@ -53,7 +58,8 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 		progress: 0,
 		downloadSpeed: 0,
 		uploadSpeed: 0,
-		numPeers: 0
+		numPeers: 0,
+		shelfIds
 	};
 
 	activeJobs.set(jobId, job);
@@ -99,7 +105,7 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 
 						// Copy the best ebook file to the library directory
 						if (torrent.content_path) {
-							copyBookToLibrary(torrent.content_path).catch((err) =>
+							copyBookToLibrary(torrent.content_path, job.shelfIds).catch((err) =>
 								console.error(`[downloader] Copy to library failed:`, err)
 							);
 						}
@@ -121,7 +127,6 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 					console.error(`[downloader] Error polling torrent status:`, err);
 				}
 			}, 2000); // Poll every 2 seconds (qBittorrent is remote, don't poll too fast)
-
 		} catch (err) {
 			job.status = 'error';
 			job.error = err instanceof Error ? err.message : 'Download failed';

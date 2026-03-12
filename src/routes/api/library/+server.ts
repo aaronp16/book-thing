@@ -3,11 +3,15 @@
  *
  * Read books from Calibre's metadata.db, sorted by most recently added.
  * Returns book id, title, author, has_cover, path, and timestamp.
+ *
+ * Query params:
+ *   ?shelf={shelfId} - Filter to only books on this shelf
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$lib/server/env';
+import { getBooksOnShelf } from '$lib/server/shelf-client';
 import * as path from 'path';
 
 let _db: any = null;
@@ -30,19 +34,49 @@ async function getDb() {
 	return _db;
 }
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const db = await getDb();
+		const shelfIdParam = url.searchParams.get('shelf');
 
-		const books = db.prepare(`
+		let bookIds: number[] | null = null;
+
+		// If shelf filter requested, get book IDs on that shelf
+		if (shelfIdParam) {
+			const shelfId = parseInt(shelfIdParam, 10);
+			if (isNaN(shelfId)) {
+				return json({ error: 'Invalid shelf ID' }, { status: 400 });
+			}
+
+			try {
+				bookIds = await getBooksOnShelf(shelfId);
+				if (bookIds.length === 0) {
+					// No books on this shelf
+					return json({ books: [], totalBooks: 0 });
+				}
+			} catch (err) {
+				console.error('[api/library] Failed to get books on shelf:', err);
+				return json({ error: 'Failed to filter by shelf' }, { status: 500 });
+			}
+		}
+
+		// Build query with optional shelf filter
+		let query = `
 			SELECT b.id, b.title, b.has_cover, b.path, b.timestamp,
 			       (SELECT GROUP_CONCAT(a.name, ', ')
 			        FROM books_authors_link bal
 			        JOIN authors a ON a.id = bal.author
 			        WHERE bal.book = b.id) AS authors
 			FROM   books b
-			ORDER BY b.timestamp DESC
-		`).all() as Array<{
+		`;
+
+		if (bookIds !== null) {
+			query += ` WHERE b.id IN (${bookIds.join(',')})`;
+		}
+
+		query += ` ORDER BY b.timestamp DESC`;
+
+		const books = db.prepare(query).all() as Array<{
 			id: number;
 			title: string;
 			has_cover: number;
@@ -53,7 +87,7 @@ export const GET: RequestHandler = async () => {
 
 		// Deduplicate by title, keeping the highest ID (most recently added copy)
 		const seen = new Set<string>();
-		const deduped = books.filter(b => {
+		const deduped = books.filter((b) => {
 			const key = b.title.toLowerCase();
 			if (seen.has(key)) return false;
 			seen.add(key);
@@ -61,7 +95,7 @@ export const GET: RequestHandler = async () => {
 		});
 
 		return json({
-			books: deduped.map(b => ({
+			books: deduped.map((b) => ({
 				id: b.id,
 				title: b.title,
 				author: b.authors ?? 'Unknown',

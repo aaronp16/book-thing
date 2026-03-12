@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { Shelf } from '$lib/types';
+	import { onMount } from 'svelte';
+
 	interface Props {
 		forcedTab?: 'library';
 		hideTabBar?: boolean;
@@ -6,12 +9,7 @@
 		titleRight?: import('svelte').Snippet;
 	}
 
-	let {
-		forcedTab,
-		hideTabBar = false,
-		showLargeTitle = false,
-		titleRight
-	}: Props = $props();
+	let { forcedTab, hideTabBar = false, showLargeTitle = false, titleRight }: Props = $props();
 
 	interface LibraryBook {
 		id: number;
@@ -27,23 +25,70 @@
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
 
+	// Shelf filtering
+	let shelves = $state<Shelf[]>([]);
+	let selectedShelfId = $state<number | null>(null);
+	let shelvesLoading = $state(false);
+
 	const filteredBooks = $derived.by(() => {
 		if (!searchQuery.trim()) return books;
 
 		const query = searchQuery.toLowerCase();
 		return books.filter(
-			(b) =>
-				b.title.toLowerCase().includes(query) ||
-				b.author.toLowerCase().includes(query)
+			(b) => b.title.toLowerCase().includes(query) || b.author.toLowerCase().includes(query)
 		);
 	});
+
+	// Load/save shelf selection from localStorage
+	onMount(() => {
+		const saved = localStorage.getItem('library-selected-shelf');
+		if (saved) {
+			selectedShelfId = saved === 'null' ? null : parseInt(saved);
+		}
+		fetchShelves();
+	});
+
+	$effect(() => {
+		// Save selection to localStorage whenever it changes
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(
+				'library-selected-shelf',
+				selectedShelfId === null ? 'null' : selectedShelfId.toString()
+			);
+		}
+	});
+
+	// Re-fetch library when shelf selection changes
+	$effect(() => {
+		fetchLibrary();
+		// eslint-disable-next-line no-unused-expressions
+		selectedShelfId;
+	});
+
+	async function fetchShelves() {
+		shelvesLoading = true;
+		try {
+			const response = await fetch('/api/shelves');
+			if (!response.ok) {
+				throw new Error('Failed to load shelves');
+			}
+			const data = await response.json();
+			shelves = data.shelves || [];
+		} catch (e) {
+			console.error('Failed to load shelves:', e);
+		} finally {
+			shelvesLoading = false;
+		}
+	}
 
 	async function fetchLibrary() {
 		loading = true;
 		error = null;
 
 		try {
-			const response = await fetch('/api/library');
+			const url = selectedShelfId ? `/api/library?shelf=${selectedShelfId}` : '/api/library';
+
+			const response = await fetch(url);
 			if (!response.ok) {
 				throw new Error('Failed to load library');
 			}
@@ -58,12 +103,8 @@
 
 	export function refresh() {
 		fetchLibrary();
+		fetchShelves();
 	}
-
-	// Initial load
-	$effect(() => {
-		fetchLibrary();
-	});
 
 	function clearSearch() {
 		searchQuery = '';
@@ -80,6 +121,37 @@
 					{#if titleRight}
 						{@render titleRight()}
 					{/if}
+				</div>
+			{/if}
+
+			<!-- Shelf filter tabs -->
+			{#if shelves.length > 0}
+				<div class="mb-4 flex items-center gap-2 overflow-x-auto">
+					<button
+						type="button"
+						onclick={() => (selectedShelfId = null)}
+						class="rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-all {selectedShelfId ===
+						null
+							? 'bg-white text-black'
+							: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
+					>
+						All Books
+					</button>
+					{#each shelves as shelf (shelf.id)}
+						<button
+							type="button"
+							onclick={() => (selectedShelfId = shelf.id)}
+							class="rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-all {selectedShelfId ===
+							shelf.id
+								? 'bg-white text-black'
+								: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
+						>
+							{shelf.name}
+							{#if shelf.bookCount !== undefined}
+								<span class="ml-1.5 text-xs opacity-75">({shelf.bookCount})</span>
+							{/if}
+						</button>
+					{/each}
 				</div>
 			{/if}
 
@@ -180,12 +252,7 @@
 			{#if error}
 				<div class="flex flex-col items-center justify-center py-12 text-center">
 					<div class="mb-3 rounded-full bg-red-900/30 p-3">
-						<svg
-							class="h-6 w-6 text-red-400"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
+						<svg class="h-6 w-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
 								stroke-linecap="round"
 								stroke-linejoin="round"
@@ -202,13 +269,7 @@
 			{:else if loading && books.length === 0}
 				<div class="flex flex-col items-center justify-center py-12">
 					<svg class="h-8 w-8 animate-spin text-neutral-600" viewBox="0 0 24 24" fill="none">
-						<circle
-							class="opacity-25"
-							cx="12"
-							cy="12"
-							r="10"
-							stroke="currentColor"
-							stroke-width="4"
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
 						></circle>
 						<path
 							class="opacity-75"
@@ -256,7 +317,9 @@
 				</div>
 			{:else}
 				<!-- Book cover grid - thumbnails only -->
-				<div class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
+				<div
+					class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4"
+				>
 					{#each filteredBooks as book (book.id)}
 						<div class="group relative aspect-[2/3] overflow-hidden rounded-lg bg-neutral-800">
 							{#if book.hasCover}
@@ -267,7 +330,9 @@
 									loading="lazy"
 								/>
 							{:else}
-								<div class="flex h-full w-full flex-col items-center justify-center p-2 text-center">
+								<div
+									class="flex h-full w-full flex-col items-center justify-center p-2 text-center"
+								>
 									<svg
 										class="mb-1 h-6 w-6 text-neutral-600"
 										fill="none"
@@ -285,7 +350,9 @@
 								</div>
 							{/if}
 							<!-- Hover overlay with title -->
-							<div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+							<div
+								class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+							>
 								<p class="truncate text-xs font-medium text-white">{book.title}</p>
 								<p class="truncate text-[10px] text-neutral-400">{book.author}</p>
 							</div>

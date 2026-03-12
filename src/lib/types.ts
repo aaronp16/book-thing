@@ -94,6 +94,14 @@ export interface DownloadJob {
 	uploadSpeed: number;
 	numPeers: number;
 	error?: string;
+	shelfIds?: number[]; // Shelves to add book to after download completes
+}
+
+/** Calibre-Web shelf */
+export interface Shelf {
+	id: number;
+	name: string;
+	bookCount?: number;
 }
 
 /** A file in the library */

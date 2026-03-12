@@ -8,6 +8,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
 import { addBookToCalibre } from './calibre-client.js';
+import { addBookToShelves } from './shelf-client.js';
 
 /** Supported ebook file extensions */
 const EBOOK_EXTENSIONS = new Set([
@@ -188,8 +189,9 @@ function pickBestPerBook(files: string[]): string[] {
  * series folders. Picks the best ebook format per book when multiple formats exist.
  *
  * @param contentPath - The content_path from qBittorrent (internal container path)
+ * @param shelfIds - Optional shelf IDs to add books to after adding to Calibre
  */
-export async function copyBookToLibrary(contentPath: string): Promise<void> {
+export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]): Promise<void> {
 	const booksDir = env.BOOKS_DIR;
 
 	console.log(`[library] copyBookToLibrary called with: ${contentPath}`);
@@ -209,7 +211,9 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 		try {
 			stat = await fs.stat(localPath);
 		} catch (err) {
-			console.error(`[library] Cannot stat translated path "${localPath}" — does the /torrents volume mount exist and is the path correct? Error: ${err}`);
+			console.error(
+				`[library] Cannot stat translated path "${localPath}" — does the /torrents volume mount exist and is the path correct? Error: ${err}`
+			);
 			return;
 		}
 
@@ -235,7 +239,10 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 			}
 			// Pick the best format per unique book title
 			srcFiles = pickBestPerBook(allEbooks);
-			console.log(`[library] Selected ${srcFiles.length} file(s) after format dedup:`, srcFiles.map(f => path.basename(f)));
+			console.log(
+				`[library] Selected ${srcFiles.length} file(s) after format dedup:`,
+				srcFiles.map((f) => path.basename(f))
+			);
 		} else {
 			console.warn(`[library] Unexpected file type at: ${localPath}`);
 			return;
@@ -257,9 +264,26 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 
 				// Register in Calibre library (moves file into Author/Title structure)
 				console.log(`[library] Registering in Calibre library: ${destFile}`);
-				addBookToCalibre(destFile).catch((err: unknown) =>
-					console.error(`[library] Calibre registration failed for ${path.basename(srcFile)}:`, err)
-				);
+				addBookToCalibre(destFile)
+					.then(async (bookId) => {
+						if (bookId && shelfIds && shelfIds.length > 0) {
+							console.log(`[library] Adding book ${bookId} to shelves: ${shelfIds.join(', ')}`);
+							try {
+								await addBookToShelves(bookId, shelfIds);
+								console.log(
+									`[library] Successfully added book ${bookId} to ${shelfIds.length} shelf(s)`
+								);
+							} catch (err) {
+								console.error(`[library] Failed to add book ${bookId} to shelves:`, err);
+							}
+						}
+					})
+					.catch((err: unknown) =>
+						console.error(
+							`[library] Calibre registration failed for ${path.basename(srcFile)}:`,
+							err
+						)
+					);
 			}
 		}
 

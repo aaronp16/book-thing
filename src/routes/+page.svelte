@@ -5,6 +5,7 @@
 	import MobileTabBar, { type MobileTab } from '$lib/components/MobileTabBar.svelte';
 	import DownloadsModal from '$lib/components/DownloadsModal.svelte';
 	import DownloadsHeaderIndicator from '$lib/components/DownloadsHeaderIndicator.svelte';
+	import ShelfSelectorModal from '$lib/components/ShelfSelectorModal.svelte';
 	import type { BookResult, SearchField, DownloadJob } from '$lib/types';
 	import { toasts } from '$lib/stores/toasts';
 	import { onMount } from 'svelte';
@@ -50,6 +51,20 @@
 
 	function closeDownloadsModal() {
 		isDownloadsModalOpen = false;
+	}
+
+	// Shelf selector modal state
+	let isShelfSelectorOpen = $state(false);
+	let currentBook = $state<BookResult | null>(null);
+
+	function openShelfSelector(book: BookResult) {
+		currentBook = book;
+		isShelfSelectorOpen = true;
+	}
+
+	function closeShelfSelector() {
+		isShelfSelectorOpen = false;
+		currentBook = null;
 	}
 
 	onMount(() => {
@@ -126,11 +141,22 @@
 		error = null;
 	}
 
-	async function handleDownload(book: BookResult) {
+	function handleDownload(book: BookResult) {
 		if (downloadingIds.has(book.id)) {
 			toasts.warning('Already downloading this book');
 			return;
 		}
+
+		// Open shelf selector modal instead of downloading immediately
+		openShelfSelector(book);
+	}
+
+	async function handleShelfSelectorConfirm(shelfIds: number[]) {
+		closeShelfSelector();
+
+		if (!currentBook) return;
+
+		const book = currentBook;
 
 		downloadingIds = new Set([...downloadingIds, book.id]);
 
@@ -156,7 +182,7 @@
 			const response = await fetch('/api/download', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mamId: book.id, title: book.title })
+				body: JSON.stringify({ mamId: book.id, title: book.title, shelfIds })
 			});
 
 			const data = await response.json();
@@ -455,4 +481,12 @@
 	onClose={closeDownloadsModal}
 	{fetchingJobs}
 	onCountChange={(count) => (downloadingCount = count)}
+/>
+
+<!-- Shelf Selector Modal -->
+<ShelfSelectorModal
+	isOpen={isShelfSelectorOpen}
+	book={currentBook}
+	onConfirm={handleShelfSelectorConfirm}
+	onCancel={closeShelfSelector}
 />

@@ -152,11 +152,10 @@
 	}
 
 	async function handleShelfSelectorConfirm(shelfIds: number[]) {
-		closeShelfSelector();
-
 		if (!currentBook) return;
 
 		const book = currentBook;
+		closeShelfSelector();
 
 		downloadingIds = new Set([...downloadingIds, book.id]);
 

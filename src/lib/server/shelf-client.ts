@@ -43,7 +43,7 @@ export interface Shelf {
 }
 
 /**
- * Get all shelves for the admin user (user_id=1)
+ * Get all shelves (for all users - since you're the only one using this)
  */
 export async function listShelves(): Promise<Shelf[]> {
 	const db = await getShelfDb();
@@ -54,11 +54,10 @@ export async function listShelves(): Promise<Shelf[]> {
 			s.name,
 			(SELECT COUNT(*) FROM book_shelf_link WHERE shelf = s.id) as bookCount
 		FROM shelf s
-		WHERE s.user_id = ?
 		ORDER BY s.name
 	`);
 
-	const rows = stmt.all(USER_ID);
+	const rows = stmt.all();
 	return rows.map((row: any) => ({
 		id: row.id,
 		name: row.name,

@@ -278,6 +278,16 @@
 							>
 								Author
 							</button>
+							<button
+								type="button"
+								onclick={() => handleFieldChange('torrent')}
+								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField ===
+								'torrent'
+									? 'bg-white text-black'
+									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
+							>
+								Torrent
+							</button>
 						</div>
 					</div>
 
@@ -325,7 +335,9 @@
 							}}
 							placeholder={searchField === 'title'
 								? 'Search by book title...'
-								: 'Search by author name...'}
+								: searchField === 'author'
+									? 'Search by author name...'
+									: 'Search by torrent name...'}
 							class="w-full rounded-full border-0 bg-neutral-800 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none {searchQuery
 								? 'pr-10'
 								: 'pr-4'}"

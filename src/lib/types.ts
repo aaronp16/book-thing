@@ -58,7 +58,7 @@ export interface BookResult {
 }
 
 /** Search field filter */
-export type SearchField = 'title' | 'author';
+export type SearchField = 'title' | 'author' | 'torrent';
 
 /** Torrent status */
 export type TorrentStatus = 'downloading' | 'seeding' | 'paused' | 'error';

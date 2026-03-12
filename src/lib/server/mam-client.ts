@@ -17,14 +17,46 @@ const PAGE_SIZE = 20;
  * E-book category IDs on MAM
  */
 const EBOOK_CATEGORIES = [
-	'60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', // EB fiction
-	'71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', // EB non-fiction
-	'90', '91', '92', '94', '95', '96', // EB more non-fiction
-	'101', '102', '103', '104', // EB crafts/historical/humor/true crime
-	'107', '109', '112', '115', '118', '120' // EB food/urban fantasy/YA/illusion/mixed/nature
+	'60',
+	'61',
+	'62',
+	'63',
+	'64',
+	'65',
+	'66',
+	'67',
+	'68',
+	'69',
+	'70', // EB fiction
+	'71',
+	'72',
+	'73',
+	'74',
+	'75',
+	'76',
+	'77',
+	'78',
+	'79',
+	'80',
+	'81',
+	'82', // EB non-fiction
+	'90',
+	'91',
+	'92',
+	'94',
+	'95',
+	'96', // EB more non-fiction
+	'101',
+	'102',
+	'103',
+	'104', // EB crafts/historical/humor/true crime
+	'107',
+	'109',
+	'112',
+	'115',
+	'118',
+	'120' // EB food/urban fantasy/YA/illusion/mixed/nature
 ];
-
-
 
 /** Current mam_id (may be rotated by MAM) */
 let currentMamId: string = '';
@@ -41,10 +73,10 @@ function getMamId(): string {
  */
 function buildHeaders(referer?: string): HeadersInit {
 	return {
-		'Cookie': `mam_id=${getMamId()}; uid=${env.MAM_UID}`,
+		Cookie: `mam_id=${getMamId()}; uid=${env.MAM_UID}`,
 		'User-Agent':
 			'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.10 Safari/605.1.15',
-		...(referer ? { 'Referer': referer } : {})
+		...(referer ? { Referer: referer } : {})
 	};
 }
 
@@ -114,6 +146,8 @@ export async function searchBooks(
 		url.searchParams.set('tor[srchIn][title]', 'true');
 	} else if (field === 'author') {
 		url.searchParams.set('tor[srchIn][author]', 'true');
+	} else if (field === 'torrent') {
+		url.searchParams.set('tor[srchIn][torrent]', 'true');
 	}
 
 	// Search type - all torrents
@@ -184,7 +218,9 @@ export async function downloadTorrentFile(torrentId: number): Promise<Buffer> {
 	});
 
 	if (!response.ok) {
-		throw new Error(`Failed to download torrent ${torrentId}: ${response.status} ${response.statusText}`);
+		throw new Error(
+			`Failed to download torrent ${torrentId}: ${response.status} ${response.statusText}`
+		);
 	}
 
 	trackCookieRotation(response);
@@ -264,9 +300,7 @@ function parsePersonInfo(info: string | number): PersonInfo[] {
  * - Array: '{"5678": ["Harry Potter", "1-7", 1.000000]}'
  * Can also be empty string or "0"
  */
-function parseSeriesInfo(
-	info: string | number
-): { id: number; name: string; number?: string }[] {
+function parseSeriesInfo(info: string | number): { id: number; name: string; number?: string }[] {
 	if (!info || info === '0' || info === 0) return [];
 
 	try {
@@ -322,5 +356,3 @@ function parseSizeToBytes(sizeStr: string): number {
 
 	return Math.round(value * (multipliers[unit] || 1));
 }
-
-

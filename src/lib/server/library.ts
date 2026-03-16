@@ -191,14 +191,18 @@ function pickBestPerBook(files: string[]): string[] {
  * @param contentPath - The content_path from qBittorrent (internal container path)
  * @param shelfIds - Optional shelf IDs to add books to after adding to Calibre
  */
-export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]): Promise<void> {
+export async function copyBookToLibrary(
+	contentPath: string,
+	shelfIds?: number[]
+): Promise<number[]> {
 	const booksDir = env.BOOKS_DIR;
+	const registeredBookIds: number[] = [];
 
 	console.log(`[library] copyBookToLibrary called with: ${contentPath}`);
 
 	if (!booksDir) {
 		console.warn('[library] BOOKS_DIR not set, skipping copy');
-		return;
+		return registeredBookIds;
 	}
 
 	const localPath = translateQBPath(contentPath);
@@ -214,30 +218,27 @@ export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]
 			console.error(
 				`[library] Cannot stat translated path "${localPath}" — does the /torrents volume mount exist and is the path correct? Error: ${err}`
 			);
-			return;
+			return registeredBookIds;
 		}
 
 		let srcFiles: string[];
 
 		if (stat.isFile()) {
-			// Single-file torrent
 			const ext = path.extname(localPath).toLowerCase();
 			console.log(`[library] Single file detected, extension: ${ext}`);
 			if (!KOBO_FORMAT_PRIORITY.includes(ext)) {
 				console.warn(`[library] Skipping non-ebook file: ${localPath}`);
-				return;
+				return registeredBookIds;
 			}
 			srcFiles = [localPath];
 		} else if (stat.isDirectory()) {
-			// Walk the entire directory tree and collect all ebook files
 			console.log(`[library] Directory detected, scanning recursively: ${localPath}`);
 			const allEbooks = await collectEbooks(localPath);
 			console.log(`[library] Found ${allEbooks.length} ebook file(s):`, allEbooks);
 			if (allEbooks.length === 0) {
 				console.warn(`[library] No recognised ebook files found in: ${localPath}`);
-				return;
+				return registeredBookIds;
 			}
-			// Pick the best format per unique book title
 			srcFiles = pickBestPerBook(allEbooks);
 			console.log(
 				`[library] Selected ${srcFiles.length} file(s) after format dedup:`,
@@ -245,7 +246,7 @@ export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]
 			);
 		} else {
 			console.warn(`[library] Unexpected file type at: ${localPath}`);
-			return;
+			return registeredBookIds;
 		}
 
 		let copied = 0;
@@ -262,11 +263,15 @@ export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]
 				console.log(`[library] Copied to library: ${path.basename(srcFile)} → ${destFile}`);
 				copied++;
 
-				// Register in Calibre library (moves file into Author/Title structure)
+				// Register in Calibre library and collect the new book ID
 				console.log(`[library] Registering in Calibre library: ${destFile}`);
-				addBookToCalibre(destFile)
-					.then(async (bookId) => {
-						if (bookId && shelfIds && shelfIds.length > 0) {
+				try {
+					const bookId = await addBookToCalibre(destFile);
+					if (bookId) {
+						registeredBookIds.push(bookId);
+
+						// Add to shelves if requested
+						if (shelfIds && shelfIds.length > 0) {
 							console.log(`[library] Adding book ${bookId} to shelves: ${shelfIds.join(', ')}`);
 							try {
 								await addBookToShelves(bookId, shelfIds);
@@ -277,20 +282,24 @@ export async function copyBookToLibrary(contentPath: string, shelfIds?: number[]
 								console.error(`[library] Failed to add book ${bookId} to shelves:`, err);
 							}
 						}
-					})
-					.catch((err: unknown) =>
-						console.error(
-							`[library] Calibre registration failed for ${path.basename(srcFile)}:`,
-							err
-						)
+					}
+				} catch (err) {
+					console.error(
+						`[library] Calibre registration failed for ${path.basename(srcFile)}:`,
+						err
 					);
+				}
 			}
 		}
 
-		console.log(`[library] Done — ${copied} copied, ${skipped} skipped`);
+		console.log(
+			`[library] Done — ${copied} copied, ${skipped} skipped, ${registeredBookIds.length} registered`
+		);
 	} catch (err) {
 		console.error(`[library] Failed to copy book from ${localPath}:`, err);
 	}
+
+	return registeredBookIds;
 }
 
 /**

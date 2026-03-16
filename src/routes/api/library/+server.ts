@@ -62,7 +62,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		// Build query with optional shelf filter
 		let query = `
-			SELECT b.id, b.title, b.has_cover, b.path, b.timestamp,
+			SELECT b.id, b.title, b.has_cover, b.path, b.timestamp, b.last_modified,
 			       (SELECT GROUP_CONCAT(a.name, ', ')
 			        FROM books_authors_link bal
 			        JOIN authors a ON a.id = bal.author
@@ -82,6 +82,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			has_cover: number;
 			path: string;
 			timestamp: string;
+			last_modified: string;
 			authors: string | null;
 		}>;
 
@@ -101,7 +102,8 @@ export const GET: RequestHandler = async ({ url }) => {
 				author: b.authors ?? 'Unknown',
 				hasCover: b.has_cover === 1,
 				path: b.path,
-				addedAt: b.timestamp
+				addedAt: b.timestamp,
+				lastModified: b.last_modified
 			})),
 			totalBooks: deduped.length
 		});

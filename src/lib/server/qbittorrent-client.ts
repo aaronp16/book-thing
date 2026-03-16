@@ -14,7 +14,7 @@ import { env } from './env.js';
  * We locate it by scanning for the key `4:info` in the bencode stream,
  * then read the exact byte range of the value that follows.
  */
-function computeInfoHash(torrentBuffer: Buffer): string {
+export function computeInfoHash(torrentBuffer: Buffer): string {
 	const marker = Buffer.from('4:info');
 	const markerPos = torrentBuffer.indexOf(marker);
 	if (markerPos === -1) {
@@ -122,10 +122,7 @@ async function login(): Promise<void> {
 /**
  * Make an authenticated API request
  */
-async function apiRequest(
-	endpoint: string,
-	options: RequestInit = {}
-): Promise<Response> {
+async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
 	// Login if we don't have a session
 	if (!sessionCookie) {
 		await login();
@@ -206,45 +203,56 @@ export async function addTorrent(
 	const parts: Buffer[] = [];
 
 	// Part 1: the .torrent file
-	parts.push(Buffer.from(
-		`--${boundary}${CRLF}` +
-		`Content-Disposition: form-data; name="torrents"; filename="torrent.torrent"${CRLF}` +
-		`Content-Type: application/x-bittorrent${CRLF}` +
-		CRLF
-	));
+	parts.push(
+		Buffer.from(
+			`--${boundary}${CRLF}` +
+				`Content-Disposition: form-data; name="torrents"; filename="torrent.torrent"${CRLF}` +
+				`Content-Type: application/x-bittorrent${CRLF}` +
+				CRLF
+		)
+	);
 	parts.push(torrentBuffer);
 	parts.push(Buffer.from(CRLF));
 
 	// Part 2: category
 	const category = options.category || env.QB_CATEGORY;
 	if (category) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="category"${CRLF}` +
-			CRLF +
-			category + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="category"${CRLF}` +
+					CRLF +
+					category +
+					CRLF
+			)
+		);
 	}
 
 	// Part 3: save path
 	const savePath = options.savePath || env.QB_SAVE_PATH;
 	if (savePath) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="savepath"${CRLF}` +
-			CRLF +
-			savePath + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="savepath"${CRLF}` +
+					CRLF +
+					savePath +
+					CRLF
+			)
+		);
 	}
 
 	// Part 4: paused
 	if (options.paused) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="paused"${CRLF}` +
-			CRLF +
-			'true' + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="paused"${CRLF}` +
+					CRLF +
+					'true' +
+					CRLF
+			)
+		);
 	}
 
 	// Closing boundary

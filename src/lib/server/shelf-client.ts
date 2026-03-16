@@ -152,6 +152,15 @@ export async function removeBookFromShelf(bookId: number, shelfId: number): Prom
 }
 
 /**
+ * Remove a book from all shelves (used when deleting a book entirely)
+ * @param bookId - The book ID
+ */
+export async function removeAllShelvesForBook(bookId: number): Promise<void> {
+	const db = await getShelfDb();
+	db.prepare('DELETE FROM book_shelf_link WHERE book_id = ?').run(bookId);
+}
+
+/**
  * Get all shelf IDs that contain a specific book
  * @param bookId - The book ID
  * @returns Array of shelf IDs

@@ -95,6 +95,7 @@ export interface DownloadJob {
 	numPeers: number;
 	error?: string;
 	shelfIds?: number[]; // Shelves to add book to after download completes
+	bookIds?: number[]; // Calibre book IDs assigned after download completes (included in done event)
 }
 
 /** Calibre-Web shelf */

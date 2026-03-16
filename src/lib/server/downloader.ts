@@ -6,7 +6,13 @@
  */
 
 import { downloadTorrentFile } from './mam-client.js';
-import { addTorrent, getTorrent, mapState } from './qbittorrent-client.js';
+import {
+	addTorrent,
+	getTorrent,
+	deleteTorrent,
+	mapState,
+	computeInfoHash
+} from './qbittorrent-client.js';
 import { copyBookToLibrary } from './library.js';
 import type { DownloadJob } from '$lib/types.js';
 
@@ -72,12 +78,23 @@ export async function startDownload(
 			console.log(`[downloader] Fetching torrent for ${mamId}: ${title}`);
 			const torrentBuffer = await downloadTorrentFile(mamId);
 
-			// Step 2: Add to qBittorrent
+			// Step 2: Add to qBittorrent — remove first if it already exists
 			job.status = 'downloading';
 			notifyProgress(jobId, job);
 
+			const hash = computeInfoHash(torrentBuffer);
+			const existing = await getTorrent(hash);
+			if (existing) {
+				console.log(
+					`[downloader] Torrent already exists (${hash}), removing before re-add: ${title}`
+				);
+				await deleteTorrent(hash, false); // keep files — they may already be in the library
+				// Brief pause to let qBittorrent process the removal
+				await new Promise((r) => setTimeout(r, 1000));
+			}
+
 			console.log(`[downloader] Adding torrent to qBittorrent: ${title}`);
-			const hash = await addTorrent(torrentBuffer);
+			await addTorrent(torrentBuffer);
 			job.infoHash = hash;
 
 			// Step 3: Set up progress polling
@@ -99,16 +116,20 @@ export async function startDownload(
 					if (status === 'seeding' || torrent.progress >= 1) {
 						job.status = 'complete';
 						job.progress = 1;
-						notifyProgress(jobId, job);
 						clearInterval(pollInterval);
 						console.log(`[downloader] Download complete: ${title}`);
 
-						// Copy the best ebook file to the library directory
+						// Copy the best ebook file to the library directory, await so we get book IDs
 						if (torrent.content_path) {
-							copyBookToLibrary(torrent.content_path, job.shelfIds).catch((err) =>
-								console.error(`[downloader] Copy to library failed:`, err)
-							);
+							try {
+								const bookIds = await copyBookToLibrary(torrent.content_path, job.shelfIds);
+								job.bookIds = bookIds;
+							} catch (err) {
+								console.error(`[downloader] Copy to library failed:`, err);
+							}
 						}
+
+						notifyProgress(jobId, job);
 
 						// Clean up job after a delay (keep for SSE to report completion)
 						setTimeout(() => {

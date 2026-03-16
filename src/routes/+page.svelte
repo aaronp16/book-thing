@@ -55,16 +55,38 @@
 
 	// Shelf selector modal state
 	let isShelfSelectorOpen = $state(false);
-	let currentBook = $state<BookResult | null>(null);
+	let currentBook = $state<{ title: string; author: string } | null>(null);
+	let currentBookMamId = $state<number | null>(null); // set when opening from search results
+	let currentLibraryBookId = $state<number | null>(null); // set when opening from library
+	let currentInitialShelfIds = $state<number[]>([]);
 
 	function openShelfSelector(book: BookResult) {
-		currentBook = book;
+		currentBook = { title: book.title, author: book.authors[0]?.name ?? '' };
+		currentBookMamId = book.id;
+		currentLibraryBookId = null;
+		currentInitialShelfIds = [];
+		isShelfSelectorOpen = true;
+	}
+
+	function openLibraryBookEditor(book: {
+		id: number;
+		title: string;
+		author: string;
+		currentShelfIds: number[];
+	}) {
+		currentBook = { title: book.title, author: book.author };
+		currentLibraryBookId = book.id;
+		currentBookMamId = null;
+		currentInitialShelfIds = book.currentShelfIds;
 		isShelfSelectorOpen = true;
 	}
 
 	function closeShelfSelector() {
 		isShelfSelectorOpen = false;
 		currentBook = null;
+		currentBookMamId = null;
+		currentLibraryBookId = null;
+		currentInitialShelfIds = [];
 	}
 
 	onMount(() => {
@@ -151,18 +173,50 @@
 		openShelfSelector(book);
 	}
 
-	async function handleShelfSelectorConfirm(shelfIds: number[]) {
+	async function handleShelfSelectorConfirm(
+		shelfIds: number[],
+		coverUrl: string | null,
+		coverData: string | null
+	) {
 		if (!currentBook) return;
 
+		// Library book edit path
+		if (currentLibraryBookId !== null) {
+			const bookId = currentLibraryBookId;
+			const bookTitle = currentBook.title;
+			const previousShelfIds = currentInitialShelfIds;
+			closeShelfSelector();
+			try {
+				const res = await fetch(`/api/library/${bookId}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ shelfIds, previousShelfIds, coverUrl, coverData })
+				});
+				if (!res.ok) {
+					const data = await res.json();
+					throw new Error(data.error || 'Failed to update book');
+				}
+				toasts.success(`Updated: ${bookTitle}`);
+				libraryPanelRef?.refresh();
+			} catch (e) {
+				toasts.error(e instanceof Error ? e.message : 'Failed to update book');
+			}
+			return;
+		}
+
+		// Download path (from search results)
+		if (!currentBookMamId) return;
+
 		const book = currentBook;
+		const mamId = currentBookMamId;
 		closeShelfSelector();
 
-		downloadingIds = new Set([...downloadingIds, book.id]);
+		downloadingIds = new Set([...downloadingIds, mamId]);
 
 		// Create an initial fetching job for the sidebar to show immediately
 		const tempJob: DownloadJob = {
-			id: `fetching-${book.id}`,
-			mamId: book.id,
+			id: `fetching-${mamId}`,
+			mamId,
 			title: book.title,
 			status: 'fetching',
 			progress: 0,
@@ -181,7 +235,7 @@
 			const response = await fetch('/api/download', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mamId: book.id, title: book.title, shelfIds })
+				body: JSON.stringify({ mamId, title: book.title, shelfIds })
 			});
 
 			const data = await response.json();
@@ -206,7 +260,7 @@
 					// Update the fetching job with real data
 					if (job.status === 'downloading' || job.status === 'complete') {
 						// Remove from fetchingJobs — qBittorrent has it now, sidebar will pick it up
-						fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+						fetchingJobs = fetchingJobs.filter((j) => j.mamId !== mamId);
 						sidebarRef?.refresh();
 					}
 				} else if (payload.type === 'done') {
@@ -218,8 +272,8 @@
 					}
 
 					eventSource.close();
-					downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-					fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+					downloadingIds = new Set([...downloadingIds].filter((id) => id !== mamId));
+					fetchingJobs = fetchingJobs.filter((j) => j.mamId !== mamId);
 
 					// Refresh sidebar and library after a short delay
 					setTimeout(() => {
@@ -231,14 +285,14 @@
 
 			eventSource.onerror = () => {
 				eventSource.close();
-				downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-				fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+				downloadingIds = new Set([...downloadingIds].filter((id) => id !== mamId));
+				fetchingJobs = fetchingJobs.filter((j) => j.mamId !== mamId);
 			};
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Failed to start download';
 			toasts.error(message);
-			downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-			fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+			downloadingIds = new Set([...downloadingIds].filter((id) => id !== mamId));
+			fetchingJobs = fetchingJobs.filter((j) => j.mamId !== mamId);
 		}
 	}
 
@@ -440,7 +494,12 @@
 			{#key mobileTab}
 				<div class="absolute inset-0 flex flex-col bg-neutral-900 {tabSlideClass}">
 					<div class="flex-1 overflow-hidden p-4 pb-20">
-						<LibraryPanel bind:this={libraryPanelRef} forcedTab="library" hideTabBar={true} />
+						<LibraryPanel
+							bind:this={libraryPanelRef}
+							forcedTab="library"
+							hideTabBar={true}
+							onBookClick={openLibraryBookEditor}
+						/>
 					</div>
 				</div>
 			{/key}
@@ -463,7 +522,11 @@
 
 	<!-- Side Panel (right side on desktop, hidden on mobile) - Library only -->
 	<div class="hidden flex-col md:flex md:w-1/3">
-		<LibraryPanel bind:this={libraryPanelRef} showLargeTitle={true}>
+		<LibraryPanel
+			bind:this={libraryPanelRef}
+			showLargeTitle={true}
+			onBookClick={openLibraryBookEditor}
+		>
 			{#snippet titleRight()}
 				<div class="flex items-center gap-3">
 					<DownloadsHeaderIndicator
@@ -498,6 +561,9 @@
 <ShelfSelectorModal
 	isOpen={isShelfSelectorOpen}
 	book={currentBook}
+	bookId={currentLibraryBookId}
+	initialShelfIds={currentInitialShelfIds}
+	isEdit={currentLibraryBookId !== null}
 	onConfirm={handleShelfSelectorConfirm}
 	onCancel={closeShelfSelector}
 />

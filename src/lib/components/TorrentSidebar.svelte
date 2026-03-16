@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { TorrentInfo, DownloadJob } from '$lib/types';
-	import CoverBackfill from './CoverBackfill.svelte';
 
 	interface Props {
 		/** Jobs still being fetched from MAM (before qBittorrent has them) */
@@ -154,9 +153,6 @@
 			</button>
 		</div>
 	</div>
-
-	<!-- Cover backfill (runs once on load, shown until dismissed) -->
-	<CoverBackfill />
 
 	<!-- Content -->
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-5">

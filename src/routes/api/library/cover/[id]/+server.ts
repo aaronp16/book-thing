@@ -37,7 +37,9 @@ export const GET: RequestHandler = async ({ params }) => {
 		}
 
 		const db = await getDb();
-		const row = db.prepare('SELECT path FROM books WHERE id = ?').get(bookId) as { path: string } | undefined;
+		const row = db.prepare('SELECT path FROM books WHERE id = ?').get(bookId) as
+			| { path: string }
+			| undefined;
 
 		if (!row) {
 			return new Response('Book not found', { status: 404 });
@@ -46,11 +48,14 @@ export const GET: RequestHandler = async ({ params }) => {
 		const coverPath = path.join(env.BOOKS_DIR, row.path, 'cover.jpg');
 
 		try {
+			const stat = await fs.stat(coverPath);
+			const etag = `"${stat.mtimeMs.toString(36)}"`;
 			const coverData = await fs.readFile(coverPath);
 			return new Response(coverData, {
 				headers: {
 					'Content-Type': 'image/jpeg',
-					'Cache-Control': 'public, max-age=86400'
+					'Cache-Control': 'no-cache',
+					ETag: etag
 				}
 			});
 		} catch {

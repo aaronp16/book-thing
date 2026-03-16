@@ -37,7 +37,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'shelfIds is required and must be a non-empty array' }, { status: 400 });
 		}
 
-		if (!shelfIds.every((id) => typeof id === 'number')) {
+		if (!shelfIds.every((id: unknown) => typeof id === 'number')) {
 			return json({ error: 'All shelfIds must be numbers' }, { status: 400 });
 		}
 

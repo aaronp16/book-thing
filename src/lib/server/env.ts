@@ -14,6 +14,10 @@ export const env = {
 	MAM_UID: svelteEnv.MAM_UID || '',
 	/** Book download directory (for library scanning and Calibre-Web library in prod) */
 	BOOKS_DIR: svelteEnv.BOOKS_DIR || './books',
+	/** Optional source Calibre library directory for one-time imports */
+	CALIBRE_DIR: svelteEnv.CALIBRE_DIR || '',
+	/** Optional Calibre-Web app.db path for importing shelf mappings */
+	CALIBRE_APP_DB_PATH: svelteEnv.CALIBRE_APP_DB_PATH || '/config/app.db',
 	/** qBittorrent WebUI URL (e.g., http://localhost:8080) */
 	QB_URL: svelteEnv.QB_URL || 'http://localhost:8080',
 	/** qBittorrent WebUI username */

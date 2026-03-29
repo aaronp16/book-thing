@@ -46,13 +46,13 @@ function notifyProgress(jobId: string, job: DownloadJob): void {
  *
  * @param mamId - MyAnonamouse torrent ID
  * @param title - Book title (for display)
- * @param shelfIds - Shelf IDs to add book to after download completes
+ * @param shelfNames - Shelf names to add book to after download completes
  * @returns Job ID for tracking progress
  */
 export async function startDownload(
 	mamId: number,
 	title: string,
-	shelfIds: number[]
+	shelfNames: string[]
 ): Promise<string> {
 	const jobId = generateJobId();
 
@@ -65,7 +65,7 @@ export async function startDownload(
 		downloadSpeed: 0,
 		uploadSpeed: 0,
 		numPeers: 0,
-		shelfIds
+		shelfNames
 	};
 
 	activeJobs.set(jobId, job);
@@ -122,7 +122,7 @@ export async function startDownload(
 						// Copy the best ebook file to the library directory, await so we get book IDs
 						if (torrent.content_path) {
 							try {
-								const bookIds = await copyBookToLibrary(torrent.content_path, job.shelfIds);
+								const bookIds = await copyBookToLibrary(torrent.content_path, job.shelfNames);
 								job.bookIds = bookIds;
 							} catch (err) {
 								console.error(`[downloader] Copy to library failed:`, err);

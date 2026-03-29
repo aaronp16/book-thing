@@ -1,66 +1,77 @@
 /**
  * GET /api/library/cover/[id]
  *
- * Serve the cover.jpg for a book by its Calibre book ID.
- * Reads the book's path from metadata.db and serves the cover.jpg file.
+ * Serve a book cover by filesystem-native library item ID.
+ * Prefers sibling sidecar covers, then falls back to embedded covers.
  */
 
 import type { RequestHandler } from './$types';
-import { env } from '$lib/server/env';
-import * as path from 'path';
 import * as fs from 'fs/promises';
+import { extractEmbeddedCoverBytes, findSidecarCover } from '$lib/server/book-covers.js';
+import { decodeLibraryItemId, resolveLibraryItemAbsolutePath } from '$lib/server/fs-library.js';
 
-let _db: any = null;
-
-async function getDb() {
-	if (_db) return _db;
-	const dbPath = path.join(env.BOOKS_DIR, 'metadata.db');
-	const { DatabaseSync } = await import('node:sqlite');
-	_db = new DatabaseSync(dbPath);
-
-	const { randomUUID } = await import('crypto');
-	_db.function('title_sort', (title: string) => {
-		const m = (title ?? '').match(/^(The|A|An)\s+/i);
-		if (!m) return title ?? '';
-		return (title ?? '').slice(m[0].length) + ', ' + m[1];
-	});
-	_db.function('uuid4', () => randomUUID());
-
-	return _db;
+function detectImageContentType(bytes: Buffer): string {
+	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+		return 'image/jpeg';
+	}
+	if (
+		bytes.length >= 8 &&
+		bytes[0] === 0x89 &&
+		bytes[1] === 0x50 &&
+		bytes[2] === 0x4e &&
+		bytes[3] === 0x47
+	) {
+		return 'image/png';
+	}
+	if (bytes.length >= 6 && bytes.subarray(0, 6).toString('ascii') === 'GIF87a') {
+		return 'image/gif';
+	}
+	if (bytes.length >= 6 && bytes.subarray(0, 6).toString('ascii') === 'GIF89a') {
+		return 'image/gif';
+	}
+	if (
+		bytes.length >= 12 &&
+		bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+		bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+	) {
+		return 'image/webp';
+	}
+	return 'application/octet-stream';
 }
 
 export const GET: RequestHandler = async ({ params }) => {
 	try {
-		const bookId = parseInt(params.id, 10);
-		if (isNaN(bookId)) {
-			return new Response('Invalid book ID', { status: 400 });
-		}
+		const relativePath = decodeLibraryItemId(params.id);
+		const bookPath = resolveLibraryItemAbsolutePath(relativePath);
 
-		const db = await getDb();
-		const row = db.prepare('SELECT path FROM books WHERE id = ?').get(bookId) as
-			| { path: string }
-			| undefined;
-
-		if (!row) {
-			return new Response('Book not found', { status: 404 });
-		}
-
-		const coverPath = path.join(env.BOOKS_DIR, row.path, 'cover.jpg');
-
-		try {
-			const stat = await fs.stat(coverPath);
+		const sidecarPath = await findSidecarCover(bookPath);
+		if (sidecarPath) {
+			const stat = await fs.stat(sidecarPath);
 			const etag = `"${stat.mtimeMs.toString(36)}"`;
-			const coverData = await fs.readFile(coverPath);
-			return new Response(coverData, {
+			const coverData = await fs.readFile(sidecarPath);
+			return new Response(new Uint8Array(coverData), {
 				headers: {
 					'Content-Type': 'image/jpeg',
 					'Cache-Control': 'no-cache',
 					ETag: etag
 				}
 			});
-		} catch {
-			return new Response('Cover not found', { status: 404 });
 		}
+
+		const embeddedCover = await extractEmbeddedCoverBytes(bookPath);
+		if (embeddedCover) {
+			const stat = await fs.stat(bookPath);
+			const etag = `"${stat.mtimeMs.toString(36)}"`;
+			return new Response(new Uint8Array(embeddedCover), {
+				headers: {
+					'Content-Type': detectImageContentType(embeddedCover),
+					'Cache-Control': 'no-cache',
+					ETag: etag
+				}
+			});
+		}
+
+		return new Response('Cover not found', { status: 404 });
 	} catch (err) {
 		console.error('[api/library/cover] Error:', err);
 		return new Response('Internal server error', { status: 500 });

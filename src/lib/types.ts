@@ -94,13 +94,13 @@ export interface DownloadJob {
 	uploadSpeed: number;
 	numPeers: number;
 	error?: string;
-	shelfIds?: number[]; // Shelves to add book to after download completes
-	bookIds?: number[]; // Calibre book IDs assigned after download completes (included in done event)
+	shelfNames?: string[]; // Shelves to add book to after download completes
+	bookIds?: string[]; // Filesystem-native library item IDs assigned after download completes
 }
 
-/** Calibre-Web shelf */
+/** Filesystem shelf */
 export interface Shelf {
-	id: number;
+	id: string;
 	name: string;
 	bookCount?: number;
 }

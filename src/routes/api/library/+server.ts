@@ -1,112 +1,112 @@
 /**
  * GET /api/library
  *
- * Read books from Calibre's metadata.db, sorted by most recently added.
- * Returns book id, title, author, has_cover, path, and timestamp.
+ * Read books directly from the filesystem, sorted by most recently modified.
+ * Returns one entry per physical file.
  *
  * Query params:
- *   ?shelf={shelfId} - Filter to only books on this shelf
+ *   ?shelf={shelfName} - Filter to only books in this shelf
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { env } from '$lib/server/env';
-import { getBooksOnShelf } from '$lib/server/shelf-client';
-import * as path from 'path';
+import { scanFilesystemLibrary } from '$lib/server/fs-library.js';
 
-let _db: any = null;
+interface GroupedLibraryBook {
+	id: string;
+	bookKey: string;
+	title: string;
+	author: string;
+	hasCover: boolean;
+	path: string;
+	addedAt: string;
+	lastModified: string;
+	shelf: string;
+	relativePath: string;
+	extension: string;
+	size: number;
+	shelfNames: string[];
+	copyCount: number;
+}
 
-async function getDb() {
-	if (_db) return _db;
-	const dbPath = path.join(env.BOOKS_DIR, 'metadata.db');
-	const { DatabaseSync } = await import('node:sqlite');
-	_db = new DatabaseSync(dbPath);
+const LIBRARY_RESPONSE_TTL_MS = 3000;
+const libraryResponseCache = new Map<
+	string,
+	{ expiresAt: number; payload: { books: GroupedLibraryBook[]; totalBooks: number } }
+>();
 
-	// Calibre triggers need these functions
-	const { randomUUID } = await import('crypto');
-	_db.function('title_sort', (title: string) => {
-		const m = (title ?? '').match(/^(The|A|An)\s+/i);
-		if (!m) return title ?? '';
-		return (title ?? '').slice(m[0].length) + ', ' + m[1];
-	});
-	_db.function('uuid4', () => randomUUID());
-
-	return _db;
+export function _invalidateLibraryResponseCache(): void {
+	libraryResponseCache.clear();
 }
 
 export const GET: RequestHandler = async ({ url }) => {
 	try {
-		const db = await getDb();
-		const shelfIdParam = url.searchParams.get('shelf');
+		const shelfName = url.searchParams.get('shelf')?.trim() || undefined;
+		const cacheKey = shelfName ?? '__all__';
+		const cached = libraryResponseCache.get(cacheKey);
+		if (cached && cached.expiresAt > Date.now()) {
+			return json(cached.payload);
+		}
 
-		let bookIds: number[] | null = null;
+		const books = await scanFilesystemLibrary();
+		const grouped = new Map<string, GroupedLibraryBook>();
 
-		// If shelf filter requested, get book IDs on that shelf
-		if (shelfIdParam) {
-			const shelfId = parseInt(shelfIdParam, 10);
-			if (isNaN(shelfId)) {
-				return json({ error: 'Invalid shelf ID' }, { status: 400 });
+		for (const book of books) {
+			const existing = grouped.get(book.bookKey);
+			if (!existing) {
+				grouped.set(book.bookKey, {
+					id: book.id,
+					bookKey: book.bookKey,
+					title: book.title,
+					author: book.author,
+					hasCover: book.hasCover,
+					path: book.relativePath,
+					addedAt: book.modifiedAt,
+					lastModified: book.modifiedAt,
+					shelf: book.shelf,
+					relativePath: book.relativePath,
+					extension: book.extension,
+					size: book.size,
+					shelfNames: [book.shelf],
+					copyCount: 1
+				});
+				continue;
 			}
 
-			try {
-				bookIds = await getBooksOnShelf(shelfId);
-				if (bookIds.length === 0) {
-					// No books on this shelf
-					return json({ books: [], totalBooks: 0 });
-				}
-			} catch (err) {
-				console.error('[api/library] Failed to get books on shelf:', err);
-				return json({ error: 'Failed to filter by shelf' }, { status: 500 });
+			existing.copyCount += 1;
+			if (!existing.shelfNames.includes(book.shelf)) {
+				existing.shelfNames.push(book.shelf);
+				existing.shelfNames.sort((a, b) => a.localeCompare(b));
+			}
+			if (new Date(book.modifiedAt).getTime() > new Date(existing.lastModified).getTime()) {
+				existing.id = book.id;
+				existing.hasCover = book.hasCover;
+				existing.path = book.relativePath;
+				existing.addedAt = book.modifiedAt;
+				existing.lastModified = book.modifiedAt;
+				existing.shelf = book.shelf;
+				existing.relativePath = book.relativePath;
+				existing.extension = book.extension;
+				existing.size = book.size;
 			}
 		}
 
-		// Build query with optional shelf filter
-		let query = `
-			SELECT b.id, b.title, b.has_cover, b.path, b.timestamp, b.last_modified,
-			       (SELECT GROUP_CONCAT(a.name, ', ')
-			        FROM books_authors_link bal
-			        JOIN authors a ON a.id = bal.author
-			        WHERE bal.book = b.id) AS authors
-			FROM   books b
-		`;
-
-		if (bookIds !== null) {
-			query += ` WHERE b.id IN (${bookIds.join(',')})`;
-		}
-
-		query += ` ORDER BY b.timestamp DESC`;
-
-		const books = db.prepare(query).all() as Array<{
-			id: number;
-			title: string;
-			has_cover: number;
-			path: string;
-			timestamp: string;
-			last_modified: string;
-			authors: string | null;
-		}>;
-
-		// Deduplicate by title, keeping the highest ID (most recently added copy)
-		const seen = new Set<string>();
-		const deduped = books.filter((b) => {
-			const key = b.title.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
+		const groupedBooks = Array.from(grouped.values()).sort(
+			(a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
+		);
+		const filteredBooks = shelfName
+			? groupedBooks.filter((book) => book.shelfNames.includes(shelfName))
+			: groupedBooks;
+		const payload = {
+			books: filteredBooks,
+			totalBooks: filteredBooks.length
+		};
+		libraryResponseCache.set(cacheKey, {
+			expiresAt: Date.now() + LIBRARY_RESPONSE_TTL_MS,
+			payload
 		});
 
-		return json({
-			books: deduped.map((b) => ({
-				id: b.id,
-				title: b.title,
-				author: b.authors ?? 'Unknown',
-				hasCover: b.has_cover === 1,
-				path: b.path,
-				addedAt: b.timestamp,
-				lastModified: b.last_modified
-			})),
-			totalBooks: deduped.length
-		});
+		return json(payload);
 	} catch (err) {
 		console.error('[api/library] Error:', err);
 		return json(

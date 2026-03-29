@@ -1,69 +1,99 @@
 /**
  * POST /api/library/[id]
  *
- * Update an existing Calibre library book: sync shelves and/or save a cover.
+ * Update a filesystem-native library item: copy it to additional shelves
+ * and/or save a cover.
  *
  * DELETE /api/library/[id]
  *
- * Permanently delete a book: removes all Calibre DB entries, shelf links, and files.
+ * Permanently delete one physical shelf-local book file and its sidecars.
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { _invalidateLibraryResponseCache } from '../+server.js';
 import {
-	addBookToShelf,
-	removeBookFromShelf,
-	removeAllShelvesForBook
-} from '$lib/server/shelf-client.js';
-import {
-	saveCoverFromUrl,
-	saveCoverFromBytes,
-	deleteBookFromCalibre
-} from '$lib/server/calibre-client.js';
+	copyFilesystemLibraryItemToShelf,
+	decodeLibraryItemId,
+	deleteFilesystemLibraryItem,
+	getFilesystemLibraryItemsForBookKey,
+	resolveLibraryItemAbsolutePath
+} from '$lib/server/fs-library.js';
+import { encodeBookKey } from '$lib/server/fs-library.js';
+import { saveCoverForBook, saveCoverFromUrlForBookWithFallback } from '$lib/server/book-covers.js';
+
+function parseShelfNames(value: unknown, fieldName: string): string[] {
+	if (!Array.isArray(value)) {
+		throw new Error(`${fieldName} must be an array`);
+	}
+	const shelfNames = value
+		.filter((item): item is string => typeof item === 'string')
+		.map((s) => s.trim());
+	if (shelfNames.length !== value.length) {
+		throw new Error(`${fieldName} must contain only strings`);
+	}
+	return Array.from(new Set(shelfNames.filter(Boolean)));
+}
 
 export const POST: RequestHandler = async ({ params, request }) => {
-	const bookId = parseInt(params.id);
-	if (isNaN(bookId)) {
+	const encodedId = params.id;
+	if (!encodedId) {
 		return json({ error: 'Invalid book ID' }, { status: 400 });
 	}
 
 	try {
 		const body = await request.json();
-		const { shelfIds, previousShelfIds, coverUrl, coverData } = body;
+		const shelfNames = parseShelfNames(body.shelfNames ?? body.shelfIds ?? [], 'shelfNames');
+		const coverUrl = typeof body.coverUrl === 'string' ? body.coverUrl : null;
+		const coverData = typeof body.coverData === 'string' ? body.coverData : null;
 
-		if (!shelfIds || !Array.isArray(shelfIds)) {
-			return json({ error: 'shelfIds must be an array' }, { status: 400 });
-		}
-		if (!previousShelfIds || !Array.isArray(previousShelfIds)) {
-			return json({ error: 'previousShelfIds must be an array' }, { status: 400 });
-		}
+		const sourceRelativePath = decodeLibraryItemId(encodedId);
+		const sourceAbsolutePath = resolveLibraryItemAbsolutePath(sourceRelativePath);
+		const bookKey = encodeBookKey(sourceRelativePath);
+		const existingCopies = await getFilesystemLibraryItemsForBookKey(bookKey);
+		const existingShelves = new Set(existingCopies.map((copy) => copy.shelf));
+		const desiredShelves = new Set(shelfNames);
 
-		// Sync shelves: add newly checked, remove newly unchecked
-		const desired = new Set<number>(shelfIds);
-		const previous = new Set<number>(previousShelfIds);
-
-		for (const id of desired) {
-			if (!previous.has(id)) await addBookToShelf(bookId, id);
-		}
-		for (const id of previous) {
-			if (!desired.has(id)) await removeBookFromShelf(bookId, id);
+		for (const shelfName of desiredShelves) {
+			if (!existingShelves.has(shelfName)) {
+				await copyFilesystemLibraryItemToShelf(encodedId, shelfName);
+			}
 		}
 
-		// Save cover if provided
-		const hasCoverUrl = coverUrl && typeof coverUrl === 'string' && coverUrl.startsWith('http');
-		const hasCoverData = coverData && typeof coverData === 'string';
+		for (const copy of existingCopies) {
+			if (!desiredShelves.has(copy.shelf)) {
+				await deleteFilesystemLibraryItem(copy.id);
+			}
+		}
 
 		let coverSaved = false;
-		if (hasCoverData) {
+		let coverStorage: 'embedded' | 'sidecar' | null = null;
+		if (coverData) {
 			const imageBytes = Buffer.from(coverData, 'base64');
-			coverSaved = await saveCoverFromBytes(bookId, imageBytes);
-		} else if (hasCoverUrl) {
-			coverSaved = await saveCoverFromUrl(bookId, coverUrl);
+			const copies = await getFilesystemLibraryItemsForBookKey(bookKey);
+			for (const copy of copies) {
+				const result = await saveCoverForBook(copy.path, imageBytes);
+				if (!coverStorage && result) {
+					coverStorage = result;
+				}
+			}
+			coverSaved = coverStorage !== null;
+		} else if (coverUrl && coverUrl.startsWith('http')) {
+			const copies = await getFilesystemLibraryItemsForBookKey(bookKey);
+			for (const copy of copies) {
+				const result = await saveCoverFromUrlForBookWithFallback(copy.path, coverUrl);
+				if (!coverStorage && result) {
+					coverStorage = result;
+				}
+			}
+			coverSaved = coverStorage !== null;
 		}
 
-		return json({ ok: true, coverSaved });
+		_invalidateLibraryResponseCache();
+
+		return json({ ok: true, coverSaved, coverStorage });
 	} catch (err) {
-		console.error(`[api/library/${bookId}] Error:`, err);
+		console.error(`[api/library/${encodedId}] Error:`, err);
 		return json(
 			{ error: err instanceof Error ? err.message : 'Failed to update book' },
 			{ status: 500 }
@@ -72,24 +102,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {
-	const bookId = parseInt(params.id);
-	if (isNaN(bookId)) {
+	const encodedId = params.id;
+	if (!encodedId) {
 		return json({ error: 'Invalid book ID' }, { status: 400 });
 	}
 
 	try {
-		// Remove from all shelves in app.db first
-		await removeAllShelvesForBook(bookId);
-
-		// Delete from Calibre metadata.db and filesystem
-		const ok = await deleteBookFromCalibre(bookId);
-		if (!ok) {
-			return json({ error: 'Book not found or could not be deleted' }, { status: 404 });
-		}
-
+		await deleteFilesystemLibraryItem(encodedId);
+		_invalidateLibraryResponseCache();
 		return json({ ok: true });
 	} catch (err) {
-		console.error(`[api/library/${bookId}] DELETE error:`, err);
+		console.error(`[api/library/${encodedId}] DELETE error:`, err);
 		return json(
 			{ error: err instanceof Error ? err.message : 'Failed to delete book' },
 			{ status: 500 }

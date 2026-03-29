@@ -5,9 +5,9 @@
  *
  * Request body:
  * {
- *   mamId: number;      // MAM torrent ID
- *   title: string;      // Book title (for display)
- *   shelfIds: number[]; // Shelf IDs to add book to after download
+ *   mamId: number;         // MAM torrent ID
+ *   title: string;         // Book title (for display)
+ *   shelfNames: string[];  // Shelf names to add book to after download
  * }
  *
  * Response:
@@ -23,7 +23,7 @@ import { startDownload } from '$lib/server/downloader';
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { mamId, title, shelfIds } = body;
+		const { mamId, title, shelfNames } = body;
 
 		if (!mamId || typeof mamId !== 'number') {
 			return json({ error: 'mamId is required and must be a number' }, { status: 400 });
@@ -33,15 +33,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'title is required and must be a string' }, { status: 400 });
 		}
 
-		if (!shelfIds || !Array.isArray(shelfIds) || shelfIds.length === 0) {
-			return json({ error: 'shelfIds is required and must be a non-empty array' }, { status: 400 });
+		if (!shelfNames || !Array.isArray(shelfNames) || shelfNames.length === 0) {
+			return json(
+				{ error: 'shelfNames is required and must be a non-empty array' },
+				{ status: 400 }
+			);
 		}
 
-		if (!shelfIds.every((id: unknown) => typeof id === 'number')) {
-			return json({ error: 'All shelfIds must be numbers' }, { status: 400 });
+		if (!shelfNames.every((name: unknown) => typeof name === 'string' && name.trim())) {
+			return json({ error: 'All shelfNames must be non-empty strings' }, { status: 400 });
 		}
 
-		const jobId = await startDownload(mamId, title, shelfIds);
+		const jobId = await startDownload(mamId, title, shelfNames);
 
 		return json({ jobId });
 	} catch (err) {

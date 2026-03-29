@@ -57,8 +57,8 @@
 	let isShelfSelectorOpen = $state(false);
 	let currentBook = $state<{ title: string; author: string } | null>(null);
 	let currentBookMamId = $state<number | null>(null); // set when opening from search results
-	let currentLibraryBookId = $state<number | null>(null); // set when opening from library
-	let currentInitialShelfIds = $state<number[]>([]);
+	let currentLibraryBookId = $state<string | null>(null); // set when opening from library
+	let currentInitialShelfIds = $state<string[]>([]);
 
 	function openShelfSelector(book: BookResult) {
 		currentBook = { title: book.title, author: book.authors[0]?.name ?? '' };
@@ -69,10 +69,10 @@
 	}
 
 	function openLibraryBookEditor(book: {
-		id: number;
+		id: string;
 		title: string;
 		author: string;
-		currentShelfIds: number[];
+		currentShelfIds: string[];
 	}) {
 		currentBook = { title: book.title, author: book.author };
 		currentLibraryBookId = book.id;
@@ -174,7 +174,7 @@
 	}
 
 	async function handleShelfSelectorConfirm(
-		shelfIds: number[],
+		shelfIds: string[],
 		coverUrl: string | null,
 		coverData: string | null
 	) {
@@ -184,13 +184,12 @@
 		if (currentLibraryBookId !== null) {
 			const bookId = currentLibraryBookId;
 			const bookTitle = currentBook.title;
-			const previousShelfIds = currentInitialShelfIds;
 			closeShelfSelector();
 			try {
 				const res = await fetch(`/api/library/${bookId}`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ shelfIds, previousShelfIds, coverUrl, coverData })
+					body: JSON.stringify({ shelfNames: shelfIds, coverUrl, coverData })
 				});
 				if (!res.ok) {
 					const data = await res.json();
@@ -235,7 +234,7 @@
 			const response = await fetch('/api/download', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mamId, title: book.title, shelfIds })
+				body: JSON.stringify({ mamId, title: book.title, shelfNames: shelfIds })
 			});
 
 			const data = await response.json();

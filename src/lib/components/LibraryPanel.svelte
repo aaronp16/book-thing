@@ -3,10 +3,10 @@
 	import { onMount } from 'svelte';
 
 	interface LibraryBookClick {
-		id: number;
+		id: string;
 		title: string;
 		author: string;
-		currentShelfIds: number[];
+		currentShelfIds: string[];
 	}
 
 	interface Props {
@@ -26,23 +26,34 @@
 	}: Props = $props();
 
 	interface LibraryBook {
-		id: number;
+		id: string;
+		bookKey: string;
 		title: string;
 		author: string;
 		hasCover: boolean;
 		path: string;
 		addedAt: string;
 		lastModified: string;
+		shelf?: string;
+		shelfNames?: string[];
+		copyCount?: number;
+		relativePath?: string;
+		extension?: string;
+		size?: number;
 	}
 
 	let books = $state<LibraryBook[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
+	let calibreImportAvailable = $state(false);
+	let calibreImportLoading = $state(false);
+	let calibreImportRunning = $state(false);
+	let calibreImportMessage = $state<string | null>(null);
 
 	// Delete confirmation: bookId currently pending confirmation, null = none
-	let confirmDeleteId = $state<number | null>(null);
-	let deletingId = $state<number | null>(null);
+	let confirmDeleteId = $state<string | null>(null);
+	let deletingId = $state<string | null>(null);
 
 	async function handleDelete(book: LibraryBook, e: MouseEvent) {
 		e.stopPropagation();
@@ -74,7 +85,7 @@
 
 	// Shelf filtering
 	let shelves = $state<Shelf[]>([]);
-	let selectedShelfId = $state<number | null>(null);
+	let selectedShelfId = $state<string | null>(null);
 	let shelvesLoading = $state(false);
 
 	const filteredBooks = $derived.by(() => {
@@ -90,9 +101,10 @@
 	onMount(() => {
 		const saved = localStorage.getItem('library-selected-shelf');
 		if (saved) {
-			selectedShelfId = saved === 'null' ? null : parseInt(saved);
+			selectedShelfId = saved === 'null' ? null : saved;
 		}
 		fetchShelves();
+		fetchCalibreImportStatus();
 	});
 
 	$effect(() => {
@@ -148,6 +160,81 @@
 		}
 	}
 
+	async function fetchCalibreImportStatus() {
+		calibreImportLoading = true;
+		try {
+			const response = await fetch('/api/calibre/import');
+			if (!response.ok) {
+				throw new Error('Failed to inspect Calibre import status');
+			}
+			const data = await response.json();
+			calibreImportAvailable = Boolean(data.available);
+		} catch {
+			calibreImportAvailable = false;
+		} finally {
+			calibreImportLoading = false;
+		}
+	}
+
+	async function handleCalibreImport() {
+		if (calibreImportRunning) return;
+
+		try {
+			const previewResponse = await fetch('/api/calibre/import', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ dryRun: true })
+			});
+			const previewData = await previewResponse.json();
+			if (!previewResponse.ok) {
+				throw new Error(previewData.error || 'Failed to preview Calibre import');
+			}
+
+			const preview = previewData.preview;
+			const topShelves = preview.shelfBreakdown
+				.slice(0, 5)
+				.map(
+					(item: { shelfName: string; bookCount: number }) =>
+						`${item.shelfName} (${item.bookCount})`
+				)
+				.join(', ');
+			const confirmed = confirm(
+				[
+					`This will copy ${preview.plannedCopies} file(s) from Calibre into ${preview.plannedShelves} shelf(s).`,
+					preview.unshelvedBooks > 0
+						? `${preview.unshelvedBooks} unshelved book(s) will go to Imported.`
+						: 'All books have shelf mappings.',
+					topShelves ? `Top shelves: ${topShelves}` : '',
+					'',
+					'Continue?'
+				]
+					.filter(Boolean)
+					.join('\n')
+			);
+			if (!confirmed) return;
+		} catch (e) {
+			calibreImportMessage = e instanceof Error ? e.message : 'Failed to preview Calibre import';
+			return;
+		}
+
+		calibreImportRunning = true;
+		calibreImportMessage = null;
+		try {
+			const response = await fetch('/api/calibre/import', { method: 'POST' });
+			const data = await response.json();
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to import from Calibre');
+			}
+			const summary = data.summary;
+			calibreImportMessage = `Imported ${summary.copiedFiles} file(s) into ${summary.importedShelves} shelf(s)`;
+			refresh();
+		} catch (e) {
+			calibreImportMessage = e instanceof Error ? e.message : 'Failed to import from Calibre';
+		} finally {
+			calibreImportRunning = false;
+		}
+	}
+
 	export function refresh() {
 		fetchLibrary();
 		fetchShelves();
@@ -159,17 +246,7 @@
 
 	async function handleBookClick(book: LibraryBook) {
 		if (!onBookClick) return;
-		// Fetch current shelf assignments for this book
-		let currentShelfIds: number[] = [];
-		try {
-			const res = await fetch(`/api/shelves/book/${book.id}`);
-			if (res.ok) {
-				const data = await res.json();
-				currentShelfIds = data.shelfIds ?? [];
-			}
-		} catch {
-			// Non-fatal — open modal with no pre-selections
-		}
+		const currentShelfIds = book.shelfNames ?? (book.shelf ? [book.shelf] : []);
 		onBookClick({ id: book.id, title: book.title, author: book.author, currentShelfIds });
 	}
 </script>
@@ -180,10 +257,27 @@
 		<div class="animate-fade-in px-4 py-6 sm:px-6 sm:py-8">
 			{#if showLargeTitle}
 				<div class="mb-4 flex items-center justify-between gap-4 sm:mb-6">
-					<h1 class="text-2xl font-bold text-white sm:text-3xl md:text-4xl">Library</h1>
-					{#if titleRight}
-						{@render titleRight()}
-					{/if}
+					<div>
+						<h1 class="text-2xl font-bold text-white sm:text-3xl md:text-4xl">Library</h1>
+						{#if calibreImportMessage}
+							<p class="mt-1 text-xs text-neutral-400">{calibreImportMessage}</p>
+						{/if}
+					</div>
+					<div class="flex items-center gap-2">
+						{#if calibreImportAvailable}
+							<button
+								type="button"
+								onclick={handleCalibreImport}
+								disabled={calibreImportRunning}
+								class="rounded-full bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								{calibreImportRunning ? 'Importing...' : 'Import From Calibre'}
+							</button>
+						{/if}
+						{#if titleRight}
+							{@render titleRight()}
+						{/if}
+					</div>
 				</div>
 			{/if}
 
@@ -454,8 +548,17 @@
 								>
 									<p class="truncate text-xs font-medium text-white">{book.title}</p>
 									<p class="truncate text-[10px] text-neutral-400">{book.author}</p>
+									{#if book.shelf}
+										<p class="truncate text-[10px] text-neutral-500">
+											{#if book.copyCount && book.copyCount > 1}
+												Shelves: {(book.shelfNames ?? []).join(', ')}
+											{:else}
+												Shelf: {book.shelf}
+											{/if}
+										</p>
+									{/if}
 									{#if onBookClick}
-										<p class="mt-0.5 text-[10px] text-blue-400">Edit cover &amp; shelves</p>
+										<p class="mt-0.5 text-[10px] text-blue-400">Edit cover / copy to shelf</p>
 									{/if}
 								</div>
 
@@ -466,7 +569,11 @@
 										class="pointer-events-auto absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 p-2"
 									>
 										<p class="text-center text-[10px] leading-tight font-medium text-white">
-											Delete this book?
+											{#if book.copyCount && book.copyCount > 1}
+												Delete the selected shelf copy?
+											{:else}
+												Delete this book?
+											{/if}
 										</p>
 										<button
 											type="button"

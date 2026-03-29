@@ -17,12 +17,12 @@
 	interface Props {
 		isOpen: boolean;
 		book: BookInfo | null;
-		initialShelfIds?: number[];
-		/** Calibre book ID — when set, the embedded EPUB cover is fetched and pre-selected */
-		bookId?: number | null;
+		initialShelfIds?: string[];
+		/** Filesystem-native book ID — when set, the current local cover is fetched and pre-selected */
+		bookId?: string | null;
 		/** When true, cover selection is optional (editing existing book) */
 		isEdit?: boolean;
-		onConfirm: (shelfIds: number[], coverUrl: string | null, coverData: string | null) => void;
+		onConfirm: (shelfIds: string[], coverUrl: string | null, coverData: string | null) => void;
 		onCancel: () => void;
 	}
 
@@ -37,7 +37,7 @@
 	}: Props = $props();
 
 	let shelves = $state<Shelf[]>([]);
-	let selectedShelfIds = $state<Set<number>>(new Set());
+	let selectedShelfIds = $state<Set<string>>(new Set());
 	let shelvesLoading = $state(true);
 	let shelvesError = $state<string | null>(null);
 
@@ -45,6 +45,7 @@
 	let selectedCoverUrl = $state<string | null>(null); // original URL (from search results)
 	let coversLoading = $state(true);
 	let coversError = $state<string | null>(null);
+	let failedCoverUrls = $state<Set<string>>(new Set());
 
 	// Uploaded cover state
 	let uploadedCoverData = $state<string | null>(null); // base64 image bytes
@@ -64,6 +65,7 @@
 			wasOpen = true;
 			selectedShelfIds = new Set(initialShelfIds);
 			selectedCoverUrl = null;
+			failedCoverUrls = new Set();
 			uploadedCoverData = null;
 			revokeUploadedUrl();
 			fetchShelves();
@@ -89,7 +91,7 @@
 			const data = await response.json();
 			shelves = data.shelves || [];
 			if (shelves.length === 0) {
-				shelvesError = 'No shelves found. Create shelves in Calibre-Web first.';
+				shelvesError = 'No shelves found.';
 			}
 		} catch (e) {
 			shelvesError = e instanceof Error ? e.message : 'Failed to load shelves';
@@ -102,6 +104,7 @@
 		coversLoading = true;
 		coversError = null;
 		covers = [];
+		failedCoverUrls = new Set();
 		try {
 			const params = new URLSearchParams({ title: b.title, author: b.author });
 			if (bookId) params.set('bookId', String(bookId));
@@ -120,7 +123,7 @@
 		}
 	}
 
-	function toggleShelf(shelfId: number) {
+	function toggleShelf(shelfId: string) {
 		const newSet = new Set(selectedShelfIds);
 		if (newSet.has(shelfId)) {
 			newSet.delete(shelfId);
@@ -132,6 +135,14 @@
 
 	function selectCover(url: string) {
 		selectedCoverUrl = url;
+	}
+
+	function markCoverFailed(url: string) {
+		if (failedCoverUrls.has(url)) return;
+		failedCoverUrls = new Set([...failedCoverUrls, url]);
+		if (selectedCoverUrl === url) {
+			selectedCoverUrl = null;
+		}
 	}
 
 	function handleUploadClick() {
@@ -294,7 +305,7 @@
 								<button
 									type="button"
 									onclick={handleUploadClick}
-									class="group relative aspect-[2/3] w-full overflow-hidden rounded-lg border-2 transition-all {uploadedSelected
+									class="group relative block aspect-[2/3] w-full overflow-hidden rounded-lg border-2 bg-neutral-950 transition-all {uploadedSelected
 										? 'border-blue-500 ring-2 ring-blue-500/40'
 										: 'border-dashed border-neutral-600 hover:border-neutral-400'}"
 								>
@@ -302,7 +313,7 @@
 										<img
 											src={uploadedDisplayUrl}
 											alt="Uploaded cover"
-											class="h-full w-full object-cover"
+											class="block h-full w-full object-cover"
 										/>
 										{#if uploadedSelected}
 											<div class="absolute inset-0 flex items-center justify-center bg-blue-500/20">
@@ -364,17 +375,26 @@
 									<button
 										type="button"
 										onclick={() => selectCover(cover.url)}
-										class="group relative aspect-[2/3] w-full overflow-hidden rounded-lg border-2 transition-all {selectedCoverUrl ===
+										class="group relative block aspect-[2/3] w-full overflow-hidden rounded-lg border-2 bg-neutral-950 transition-all {selectedCoverUrl ===
 										cover.url
 											? 'border-blue-500 ring-2 ring-blue-500/40'
 											: 'border-neutral-700 hover:border-neutral-500'}"
 									>
-										<img
-											src={cover.displayUrl}
-											alt="Book cover"
-											class="h-full w-full object-cover"
-											loading="lazy"
-										/>
+										{#if failedCoverUrls.has(cover.url)}
+											<div
+												class="flex h-full w-full items-center justify-center p-3 text-center text-xs text-neutral-500"
+											>
+												Preview unavailable
+											</div>
+										{:else}
+											<img
+												src={cover.displayUrl}
+												alt="Book cover"
+												class="block h-full w-full object-cover"
+												loading="lazy"
+												onerror={() => markCoverFailed(cover.url)}
+											/>
+										{/if}
 										{#if selectedCoverUrl === cover.url}
 											<div class="absolute inset-0 flex items-center justify-center bg-blue-500/20">
 												<div class="rounded-full bg-blue-500 p-1">

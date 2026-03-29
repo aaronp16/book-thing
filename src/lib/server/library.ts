@@ -7,8 +7,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
-import { addBookToCalibre } from './calibre-client.js';
-import { addBookToShelves } from './shelf-client.js';
+import { readBookMetadata } from './book-metadata.js';
+import { encodeLibraryItemId } from './fs-library.js';
+import { ensureShelfDirectory } from './fs-shelves.js';
 
 /** Supported ebook file extensions */
 const EBOOK_EXTENSIONS = new Set([
@@ -182,27 +183,32 @@ function pickBestPerBook(files: string[]): string[] {
 }
 
 /**
- * Copy a completed download to the books/Calibre library directory.
+ * Copy a completed download into the filesystem-native library layout.
  *
  * Only called from the download completion handler — does NOT retroactively
  * copy existing torrents. Handles single files, flat directories, and nested
  * series folders. Picks the best ebook format per book when multiple formats exist.
  *
  * @param contentPath - The content_path from qBittorrent (internal container path)
- * @param shelfIds - Optional shelf IDs to add books to after adding to Calibre
+ * @param shelfNames - Shelf names to copy books into after download completes
  */
 export async function copyBookToLibrary(
 	contentPath: string,
-	shelfIds?: number[]
-): Promise<number[]> {
+	shelfNames?: string[]
+): Promise<string[]> {
 	const booksDir = env.BOOKS_DIR;
-	const registeredBookIds: number[] = [];
+	const libraryItemIds: string[] = [];
 
 	console.log(`[library] copyBookToLibrary called with: ${contentPath}`);
 
 	if (!booksDir) {
 		console.warn('[library] BOOKS_DIR not set, skipping copy');
-		return registeredBookIds;
+		return libraryItemIds;
+	}
+
+	if (!shelfNames || shelfNames.length === 0) {
+		console.warn('[library] No shelf names provided, skipping copy');
+		return libraryItemIds;
 	}
 
 	const localPath = translateQBPath(contentPath);
@@ -218,7 +224,7 @@ export async function copyBookToLibrary(
 			console.error(
 				`[library] Cannot stat translated path "${localPath}" — does the /torrents volume mount exist and is the path correct? Error: ${err}`
 			);
-			return registeredBookIds;
+			return libraryItemIds;
 		}
 
 		let srcFiles: string[];
@@ -228,7 +234,7 @@ export async function copyBookToLibrary(
 			console.log(`[library] Single file detected, extension: ${ext}`);
 			if (!KOBO_FORMAT_PRIORITY.includes(ext)) {
 				console.warn(`[library] Skipping non-ebook file: ${localPath}`);
-				return registeredBookIds;
+				return libraryItemIds;
 			}
 			srcFiles = [localPath];
 		} else if (stat.isDirectory()) {
@@ -237,7 +243,7 @@ export async function copyBookToLibrary(
 			console.log(`[library] Found ${allEbooks.length} ebook file(s):`, allEbooks);
 			if (allEbooks.length === 0) {
 				console.warn(`[library] No recognised ebook files found in: ${localPath}`);
-				return registeredBookIds;
+				return libraryItemIds;
 			}
 			srcFiles = pickBestPerBook(allEbooks);
 			console.log(
@@ -246,60 +252,54 @@ export async function copyBookToLibrary(
 			);
 		} else {
 			console.warn(`[library] Unexpected file type at: ${localPath}`);
-			return registeredBookIds;
+			return libraryItemIds;
 		}
 
 		let copied = 0;
 		let skipped = 0;
 		for (const srcFile of srcFiles) {
-			const destFile = path.join(booksDir, path.basename(srcFile));
-			try {
-				await fs.access(destFile);
-				console.log(`[library] Already exists, skipping: ${path.basename(destFile)}`);
-				skipped++;
-			} catch {
-				// File doesn't exist — copy it
-				await fs.copyFile(srcFile, destFile);
-				console.log(`[library] Copied to library: ${path.basename(srcFile)} → ${destFile}`);
-				copied++;
+			const metadata = await readBookMetadata(srcFile);
+			const authorDirName = sanitizePathSegment(metadata.author || 'Unknown');
+			for (const shelfName of shelfNames) {
+				const safeShelfName = sanitizePathSegment(shelfName);
+				const shelfDir = await ensureShelfDirectory(safeShelfName);
+				const destDir = path.join(shelfDir, authorDirName);
+				const destFile = path.join(destDir, path.basename(srcFile));
+				await fs.mkdir(destDir, { recursive: true });
 
-				// Register in Calibre library and collect the new book ID
-				console.log(`[library] Registering in Calibre library: ${destFile}`);
 				try {
-					const bookId = await addBookToCalibre(destFile);
-					if (bookId) {
-						registeredBookIds.push(bookId);
-
-						// Add to shelves if requested
-						if (shelfIds && shelfIds.length > 0) {
-							console.log(`[library] Adding book ${bookId} to shelves: ${shelfIds.join(', ')}`);
-							try {
-								await addBookToShelves(bookId, shelfIds);
-								console.log(
-									`[library] Successfully added book ${bookId} to ${shelfIds.length} shelf(s)`
-								);
-							} catch (err) {
-								console.error(`[library] Failed to add book ${bookId} to shelves:`, err);
-							}
-						}
-					}
-				} catch (err) {
-					console.error(
-						`[library] Calibre registration failed for ${path.basename(srcFile)}:`,
-						err
-					);
+					await fs.access(destFile);
+					console.log(`[library] Already exists, skipping: ${destFile}`);
+					skipped++;
+				} catch {
+					await fs.copyFile(srcFile, destFile);
+					console.log(`[library] Copied to shelf: ${srcFile} → ${destFile}`);
+					copied++;
 				}
+
+				const relativePath = path.relative(booksDir, destFile);
+				libraryItemIds.push(encodeLibraryItemId(relativePath));
 			}
 		}
 
 		console.log(
-			`[library] Done — ${copied} copied, ${skipped} skipped, ${registeredBookIds.length} registered`
+			`[library] Done — ${copied} copied, ${skipped} skipped, ${libraryItemIds.length} library items`
 		);
 	} catch (err) {
 		console.error(`[library] Failed to copy book from ${localPath}:`, err);
 	}
 
-	return registeredBookIds;
+	return Array.from(new Set(libraryItemIds));
+}
+
+function sanitizePathSegment(value: string): string {
+	return (
+		value
+			.replace(/[\\/:*?"<>|]/g, '_')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.slice(0, 120) || 'Unknown'
+	);
 }
 
 /**

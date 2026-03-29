@@ -1,14 +1,14 @@
 import { json } from '@sveltejs/kit';
-import { listShelves } from '$lib/server/shelf-client.js';
+import { listShelfDirectories } from '$lib/server/fs-shelves.js';
 import type { RequestHandler } from './$types';
 
 /**
  * GET /api/shelves
- * Returns all shelves for the admin user (user_id=1)
+ * Returns top-level shelf directories from BOOKS_DIR.
  */
 export const GET: RequestHandler = async () => {
 	try {
-		const shelves = await listShelves();
+		const shelves = await listShelfDirectories();
 		return json({ shelves });
 	} catch (error) {
 		console.error('Failed to load shelves:', error);

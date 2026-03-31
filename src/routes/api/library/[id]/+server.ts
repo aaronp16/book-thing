@@ -35,7 +35,7 @@ function parseShelfNames(value: unknown, fieldName: string): string[] {
 	return Array.from(new Set(shelfNames.filter(Boolean)));
 }
 
-export const POST: RequestHandler = async ({ params, request, url }) => {
+export const POST: RequestHandler = async ({ params, request }) => {
 	const encodedId = params.id;
 	if (!encodedId) {
 		return json({ error: 'Invalid book ID' }, { status: 400 });
@@ -47,7 +47,7 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 		const coverUrl = typeof body.coverUrl === 'string' ? body.coverUrl : null;
 		const coverData = typeof body.coverData === 'string' ? body.coverData : null;
 		const normalizedCoverUrl = coverUrl?.startsWith('/api/covers/proxy?url=')
-			? new URL(coverUrl, url.origin).toString()
+			? new URLSearchParams(coverUrl.slice('/api/covers/proxy?'.length)).get('url')
 			: coverUrl;
 		const isRemoteCoverUrl =
 			normalizedCoverUrl !== null &&

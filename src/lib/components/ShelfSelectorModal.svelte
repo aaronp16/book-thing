@@ -57,12 +57,10 @@
 	let coversLoading = $state(true);
 	let coversError = $state<string | null>(null);
 	let failedCoverUrls = $state<Set<string>>(new Set());
-	let coverRatios = $state<Record<string, number>>({});
 
 	// Uploaded cover state
 	let uploadedCoverData = $state<string | null>(null); // base64 image bytes
 	let uploadedDisplayUrl = $state<string | null>(null); // object URL for <img> preview
-	let uploadedCoverRatio = $state<number | null>(null);
 	const UPLOAD_KEY = '__uploaded__';
 
 	let fileInput: HTMLInputElement | undefined = $state();
@@ -70,8 +68,6 @@
 	// Whether the uploaded tile is selected
 	const uploadedSelected = $derived(selectedCoverUrl === UPLOAD_KEY);
 	const COVER_COLUMN_COUNT = 4;
-	const DEFAULT_COVER_RATIO = 1.5;
-	const COVER_TILE_FOOTER_HEIGHT = 0.35;
 
 	const coverColumns = $derived.by(() => {
 		const items: CoverTile[] = [
@@ -79,25 +75,9 @@
 			...covers.map((cover): SearchCoverTile => ({ kind: 'cover', cover }))
 		];
 		const columns = Array.from({ length: COVER_COLUMN_COUNT }, () => [] as CoverTile[]);
-		const heights = Array.from({ length: COVER_COLUMN_COUNT }, () => 0);
 
-		for (const item of items) {
-			const ratio =
-				item.kind === 'upload'
-					? (uploadedCoverRatio ?? DEFAULT_COVER_RATIO)
-					: failedCoverUrls.has(item.cover.url)
-						? DEFAULT_COVER_RATIO
-						: (coverRatios[item.cover.url] ?? DEFAULT_COVER_RATIO);
-
-			let shortestColumnIndex = 0;
-			for (let i = 1; i < heights.length; i += 1) {
-				if (heights[i] < heights[shortestColumnIndex]) {
-					shortestColumnIndex = i;
-				}
-			}
-
-			columns[shortestColumnIndex].push(item);
-			heights[shortestColumnIndex] += ratio + COVER_TILE_FOOTER_HEIGHT;
+		for (const [index, item] of items.entries()) {
+			columns[index % COVER_COLUMN_COUNT].push(item);
 		}
 
 		return columns;
@@ -112,8 +92,6 @@
 			selectedShelfIds = new Set(initialShelfIds);
 			selectedCoverUrl = null;
 			failedCoverUrls = new Set();
-			coverRatios = {};
-			uploadedCoverRatio = null;
 			uploadedCoverData = null;
 			revokeUploadedUrl();
 			fetchShelves();
@@ -153,7 +131,6 @@
 		coversError = null;
 		covers = [];
 		failedCoverUrls = new Set();
-		coverRatios = {};
 		try {
 			const params = new URLSearchParams({ title: b.title, author: b.author });
 			if (bookId) params.set('bookId', String(bookId));
@@ -194,24 +171,6 @@
 		}
 	}
 
-	function rememberCoverRatio(url: string, event: Event) {
-		const img = event.currentTarget as HTMLImageElement;
-		if (!img.naturalWidth || !img.naturalHeight) return;
-		const ratio = img.naturalHeight / img.naturalWidth;
-		if (!Number.isFinite(ratio) || ratio <= 0) return;
-		if (coverRatios[url] === ratio) return;
-		coverRatios = { ...coverRatios, [url]: ratio };
-	}
-
-	function rememberUploadedCoverRatio(event: Event) {
-		const img = event.currentTarget as HTMLImageElement;
-		if (!img.naturalWidth || !img.naturalHeight) return;
-		const ratio = img.naturalHeight / img.naturalWidth;
-		if (!Number.isFinite(ratio) || ratio <= 0) return;
-		if (uploadedCoverRatio === ratio) return;
-		uploadedCoverRatio = ratio;
-	}
-
 	function handleUploadClick() {
 		fileInput?.click();
 	}
@@ -225,7 +184,6 @@
 
 		// Preview URL
 		uploadedDisplayUrl = URL.createObjectURL(file);
-		uploadedCoverRatio = null;
 
 		// Read as base64 for sending to server
 		const reader = new FileReader();
@@ -388,7 +346,6 @@
 																src={uploadedDisplayUrl}
 																alt="Uploaded cover"
 																class="block h-auto w-full"
-																onload={rememberUploadedCoverRatio}
 															/>
 															{#if uploadedSelected}
 																<div
@@ -487,7 +444,6 @@
 																alt="Book cover"
 																class="block h-auto w-full"
 																loading="lazy"
-																onload={(event) => rememberCoverRatio(item.cover.url, event)}
 																onerror={() => markCoverFailed(item.cover.url)}
 															/>
 														{/if}

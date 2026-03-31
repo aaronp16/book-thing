@@ -43,13 +43,11 @@
 	}
 
 	const LIBRARY_COLUMN_COUNT = 4;
-	const DEFAULT_COVER_RATIO = 1.5;
 
 	let books = $state<LibraryBook[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
-	let bookCoverRatios = $state<Record<string, number>>({});
 	let calibreImportAvailable = $state(false);
 	let calibreImportLoading = $state(false);
 	let calibreImportRunning = $state(false);
@@ -103,21 +101,9 @@
 
 	const libraryColumns = $derived.by(() => {
 		const columns = Array.from({ length: LIBRARY_COLUMN_COUNT }, () => [] as LibraryBook[]);
-		const heights = Array.from({ length: LIBRARY_COLUMN_COUNT }, () => 0);
 
-		for (const book of filteredBooks) {
-			const ratio = book.hasCover
-				? (bookCoverRatios[book.id] ?? DEFAULT_COVER_RATIO)
-				: DEFAULT_COVER_RATIO;
-			let shortestColumnIndex = 0;
-			for (let i = 1; i < heights.length; i += 1) {
-				if (heights[i] < heights[shortestColumnIndex]) {
-					shortestColumnIndex = i;
-				}
-			}
-
-			columns[shortestColumnIndex].push(book);
-			heights[shortestColumnIndex] += ratio;
+		for (const [index, book] of filteredBooks.entries()) {
+			columns[index % LIBRARY_COLUMN_COUNT].push(book);
 		}
 
 		return columns;
@@ -268,15 +254,6 @@
 
 	function clearSearch() {
 		searchQuery = '';
-	}
-
-	function rememberBookCoverRatio(bookId: string, event: Event) {
-		const img = event.currentTarget as HTMLImageElement;
-		if (!img.naturalWidth || !img.naturalHeight) return;
-		const ratio = img.naturalHeight / img.naturalWidth;
-		if (!Number.isFinite(ratio) || ratio <= 0) return;
-		if (bookCoverRatios[bookId] === ratio) return;
-		bookCoverRatios = { ...bookCoverRatios, [bookId]: ratio };
 	}
 
 	async function handleBookClick(book: LibraryBook) {
@@ -556,7 +533,6 @@
 												alt={book.title}
 												class="block h-auto w-full transition-opacity group-hover:opacity-70"
 												loading="lazy"
-												onload={(event) => rememberBookCoverRatio(book.id, event)}
 											/>
 										{:else}
 											<div

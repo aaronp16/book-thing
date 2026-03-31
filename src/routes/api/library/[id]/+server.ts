@@ -35,7 +35,7 @@ function parseShelfNames(value: unknown, fieldName: string): string[] {
 	return Array.from(new Set(shelfNames.filter(Boolean)));
 }
 
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, url }) => {
 	const encodedId = params.id;
 	if (!encodedId) {
 		return json({ error: 'Invalid book ID' }, { status: 400 });
@@ -46,6 +46,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const shelfNames = parseShelfNames(body.shelfNames ?? body.shelfIds ?? [], 'shelfNames');
 		const coverUrl = typeof body.coverUrl === 'string' ? body.coverUrl : null;
 		const coverData = typeof body.coverData === 'string' ? body.coverData : null;
+		const normalizedCoverUrl = coverUrl?.startsWith('/api/covers/proxy?url=')
+			? new URL(coverUrl, url.origin).toString()
+			: coverUrl;
+		const isRemoteCoverUrl =
+			normalizedCoverUrl !== null &&
+			(normalizedCoverUrl.startsWith('http://') || normalizedCoverUrl.startsWith('https://'));
 
 		const sourceRelativePath = decodeLibraryItemId(encodedId);
 		const sourceAbsolutePath = resolveLibraryItemAbsolutePath(sourceRelativePath);
@@ -78,10 +84,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				}
 			}
 			coverSaved = coverStorage !== null;
-		} else if (coverUrl && coverUrl.startsWith('http')) {
+		} else if (isRemoteCoverUrl && normalizedCoverUrl) {
 			const copies = await getFilesystemLibraryItemsForBookKey(bookKey);
 			for (const copy of copies) {
-				const result = await saveCoverFromUrlForBookWithFallback(copy.path, coverUrl);
+				const result = await saveCoverFromUrlForBookWithFallback(copy.path, normalizedCoverUrl);
 				if (!coverStorage && result) {
 					coverStorage = result;
 				}

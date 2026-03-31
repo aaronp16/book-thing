@@ -97,9 +97,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		for (const u of googleUrls) {
 			if (!seen.has(u)) {
 				seen.add(u);
+				const proxiedUrl = getProxyDisplayUrl(u, 'google');
 				covers.push({
-					url: u,
-					displayUrl: getProxyDisplayUrl(u, 'google'),
+					url: proxiedUrl,
+					displayUrl: proxiedUrl,
 					source: 'google'
 				});
 			}
@@ -107,9 +108,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		for (const u of olUrls) {
 			if (!seen.has(u)) {
 				seen.add(u);
+				const proxiedUrl = getProxyDisplayUrl(u, 'openlibrary');
 				covers.push({
-					url: u,
-					displayUrl: getProxyDisplayUrl(u, 'openlibrary'),
+					url: proxiedUrl,
+					displayUrl: proxiedUrl,
 					source: 'openlibrary'
 				});
 			}

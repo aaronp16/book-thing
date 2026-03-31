@@ -42,10 +42,14 @@
 		size?: number;
 	}
 
+	const LIBRARY_COLUMN_COUNT = 4;
+	const DEFAULT_COVER_RATIO = 1.5;
+
 	let books = $state<LibraryBook[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
+	let bookCoverRatios = $state<Record<string, number>>({});
 	let calibreImportAvailable = $state(false);
 	let calibreImportLoading = $state(false);
 	let calibreImportRunning = $state(false);
@@ -95,6 +99,28 @@
 		return books.filter(
 			(b) => b.title.toLowerCase().includes(query) || b.author.toLowerCase().includes(query)
 		);
+	});
+
+	const libraryColumns = $derived.by(() => {
+		const columns = Array.from({ length: LIBRARY_COLUMN_COUNT }, () => [] as LibraryBook[]);
+		const heights = Array.from({ length: LIBRARY_COLUMN_COUNT }, () => 0);
+
+		for (const book of filteredBooks) {
+			const ratio = book.hasCover
+				? (bookCoverRatios[book.id] ?? DEFAULT_COVER_RATIO)
+				: DEFAULT_COVER_RATIO;
+			let shortestColumnIndex = 0;
+			for (let i = 1; i < heights.length; i += 1) {
+				if (heights[i] < heights[shortestColumnIndex]) {
+					shortestColumnIndex = i;
+				}
+			}
+
+			columns[shortestColumnIndex].push(book);
+			heights[shortestColumnIndex] += ratio;
+		}
+
+		return columns;
 	});
 
 	// Load/save shelf selection from localStorage
@@ -242,6 +268,15 @@
 
 	function clearSearch() {
 		searchQuery = '';
+	}
+
+	function rememberBookCoverRatio(bookId: string, event: Event) {
+		const img = event.currentTarget as HTMLImageElement;
+		if (!img.naturalWidth || !img.naturalHeight) return;
+		const ratio = img.naturalHeight / img.naturalWidth;
+		if (!Number.isFinite(ratio) || ratio <= 0) return;
+		if (bookCoverRatios[bookId] === ratio) return;
+		bookCoverRatios = { ...bookCoverRatios, [bookId]: ratio };
 	}
 
 	async function handleBookClick(book: LibraryBook) {
@@ -473,142 +508,148 @@
 					<p class="mt-1 text-xs text-neutral-500">Try a different search term</p>
 				</div>
 			{:else}
-				<!-- Book cover grid - thumbnails only -->
-				<div
-					class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4"
-				>
-					{#each filteredBooks as book (book.id)}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<div
-							role="button"
-							tabindex="0"
-							onclick={() => {
-								confirmDeleteId = null;
-								handleBookClick(book);
-							}}
-							class="group relative aspect-[2/3] overflow-hidden rounded-lg bg-neutral-800 text-left {onBookClick
-								? 'cursor-pointer'
-								: 'cursor-default'}"
-						>
-							{#if deletingId === book.id}
-								<!-- Deleting spinner -->
-								<div class="flex h-full w-full items-center justify-center bg-neutral-900/80">
-									<svg
-										class="h-6 w-6 animate-spin text-neutral-400"
-										viewBox="0 0 24 24"
-										fill="none"
-									>
-										<circle
-											class="opacity-25"
-											cx="12"
-											cy="12"
-											r="10"
-											stroke="currentColor"
-											stroke-width="4"
-										></circle>
-										<path
-											class="opacity-75"
-											fill="currentColor"
-											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-										></path>
-									</svg>
-								</div>
-							{:else}
-								{#if book.hasCover}
-									<img
-										src="/api/library/cover/{book.id}?v={encodeURIComponent(book.lastModified)}"
-										alt={book.title}
-										class="h-full w-full object-cover transition-opacity group-hover:opacity-70"
-										loading="lazy"
-									/>
-								{:else}
-									<div
-										class="flex h-full w-full flex-col items-center justify-center p-2 text-center"
-									>
-										<svg
-											class="mb-1 h-6 w-6 text-neutral-600"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="1.5"
-												d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-											/>
-										</svg>
-										<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
-									</div>
-								{/if}
-
-								<!-- Hover overlay with title + edit hint -->
+				<!-- Book cover columns -->
+				<div class="grid grid-cols-4 gap-2">
+					{#each libraryColumns as column, columnIndex (`library-column-${columnIndex}`)}
+						<div class="flex min-w-0 flex-col gap-2">
+							{#each column as book (book.id)}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<div
-									class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+									role="button"
+									tabindex="0"
+									onclick={() => {
+										confirmDeleteId = null;
+										handleBookClick(book);
+									}}
+									class="group relative overflow-hidden rounded-lg bg-neutral-800 text-left {onBookClick
+										? 'cursor-pointer'
+										: 'cursor-default'}"
 								>
-									<p class="truncate text-xs font-medium text-white">{book.title}</p>
-									<p class="truncate text-[10px] text-neutral-400">{book.author}</p>
-									{#if book.shelf}
-										<p class="truncate text-[10px] text-neutral-500">
-											{#if book.copyCount && book.copyCount > 1}
-												Shelves: {(book.shelfNames ?? []).join(', ')}
-											{:else}
-												Shelf: {book.shelf}
+									{#if deletingId === book.id}
+										<div
+											class="flex h-full min-h-52 w-full items-center justify-center bg-neutral-900/80"
+										>
+											<svg
+												class="h-6 w-6 animate-spin text-neutral-400"
+												viewBox="0 0 24 24"
+												fill="none"
+											>
+												<circle
+													class="opacity-25"
+													cx="12"
+													cy="12"
+													r="10"
+													stroke="currentColor"
+													stroke-width="4"
+												></circle>
+												<path
+													class="opacity-75"
+													fill="currentColor"
+													d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+												></path>
+											</svg>
+										</div>
+									{:else}
+										{#if book.hasCover}
+											<img
+												src="/api/library/cover/{book.id}?v={encodeURIComponent(book.lastModified)}"
+												alt={book.title}
+												class="block h-auto w-full transition-opacity group-hover:opacity-70"
+												loading="lazy"
+												onload={(event) => rememberBookCoverRatio(book.id, event)}
+											/>
+										{:else}
+											<div
+												class="flex min-h-52 w-full flex-col items-center justify-center p-2 text-center"
+											>
+												<svg
+													class="mb-1 h-6 w-6 text-neutral-600"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="1.5"
+														d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+													/>
+												</svg>
+												<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
+											</div>
+										{/if}
+
+										<div
+											class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+										>
+											<p class="truncate text-xs font-medium text-white">{book.title}</p>
+											<p class="truncate text-[10px] text-neutral-400">{book.author}</p>
+											{#if book.shelf}
+												<p class="truncate text-[10px] text-neutral-500">
+													{#if book.copyCount && book.copyCount > 1}
+														Shelves: {(book.shelfNames ?? []).join(', ')}
+													{:else}
+														Shelf: {book.shelf}
+													{/if}
+												</p>
 											{/if}
-										</p>
-									{/if}
-									{#if onBookClick}
-										<p class="mt-0.5 text-[10px] text-blue-400">Edit cover / copy to shelf</p>
+											{#if onBookClick}
+												<p class="mt-0.5 text-[10px] text-blue-400">Edit cover / copy to shelf</p>
+											{/if}
+										</div>
+
+										{#if confirmDeleteId === book.id}
+											<div
+												class="pointer-events-auto absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 p-2"
+											>
+												<p class="text-center text-[10px] leading-tight font-medium text-white">
+													{#if book.copyCount && book.copyCount > 1}
+														Delete the selected shelf copy?
+													{:else}
+														Delete this book?
+													{/if}
+												</p>
+												<button
+													type="button"
+													onclick={(e) => handleDelete(book, e)}
+													class="w-full rounded bg-red-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-red-500"
+												>
+													Delete
+												</button>
+												<button
+													type="button"
+													onclick={cancelDelete}
+													class="w-full rounded bg-neutral-700 px-2 py-1 text-[10px] text-neutral-300 hover:bg-neutral-600"
+												>
+													Cancel
+												</button>
+											</div>
+										{:else}
+											<button
+												type="button"
+												onclick={(e) => handleDelete(book, e)}
+												class="pointer-events-auto absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-600 hover:text-white"
+												aria-label="Delete book"
+												title="Delete book"
+											>
+												<svg
+													class="h-3.5 w-3.5"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+													/>
+												</svg>
+											</button>
+										{/if}
 									{/if}
 								</div>
-
-								<!-- Delete button — top-right corner, appears on hover -->
-								{#if confirmDeleteId === book.id}
-									<!-- Confirmation state: red overlay with confirm/cancel -->
-									<div
-										class="pointer-events-auto absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 p-2"
-									>
-										<p class="text-center text-[10px] leading-tight font-medium text-white">
-											{#if book.copyCount && book.copyCount > 1}
-												Delete the selected shelf copy?
-											{:else}
-												Delete this book?
-											{/if}
-										</p>
-										<button
-											type="button"
-											onclick={(e) => handleDelete(book, e)}
-											class="w-full rounded bg-red-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-red-500"
-										>
-											Delete
-										</button>
-										<button
-											type="button"
-											onclick={cancelDelete}
-											class="w-full rounded bg-neutral-700 px-2 py-1 text-[10px] text-neutral-300 hover:bg-neutral-600"
-										>
-											Cancel
-										</button>
-									</div>
-								{:else}
-									<button
-										type="button"
-										onclick={(e) => handleDelete(book, e)}
-										class="pointer-events-auto absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-600 hover:text-white"
-										aria-label="Delete book"
-										title="Delete book"
-									>
-										<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="2"
-												d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-											/>
-										</svg>
-									</button>
-								{/if}
-							{/if}
+							{/each}
 						</div>
 					{/each}
 				</div>

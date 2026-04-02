@@ -252,6 +252,36 @@
 		fetchShelves();
 	}
 
+	export function applyBookUpdate(bookId: string, shelfIds: string[]) {
+		const shelfNames = shelves
+			.filter((shelf) => shelfIds.includes(shelf.id))
+			.map((shelf) => shelf.name);
+
+		books = books.map((book) => {
+			if (book.id !== bookId) return book;
+			return {
+				...book,
+				hasCover: true,
+				lastModified: new Date().toISOString(),
+				shelfNames,
+				copyCount: shelfNames.length,
+				shelf: shelfNames[0]
+			};
+		});
+
+		for (const shelf of shelves) {
+			if (shelf.bookCount === undefined) continue;
+			const bookHasShelf = books.some((book) =>
+				book.id === bookId
+					? shelfIds.includes(shelf.id)
+					: (book.shelfNames ?? []).includes(shelf.name)
+			);
+			if (!bookHasShelf && shelfIds.includes(shelf.id)) {
+				shelf.bookCount += 1;
+			}
+		}
+	}
+
 	function clearSearch() {
 		searchQuery = '';
 	}
@@ -529,7 +559,9 @@
 									{:else}
 										{#if book.hasCover}
 											<img
-												src="/api/library/cover/{book.id}?v={encodeURIComponent(book.lastModified)}"
+												src="/api/library/cover/{book.id}?w=320&v={encodeURIComponent(
+													book.lastModified
+												)}"
 												alt={book.title}
 												class="block h-auto w-full transition-opacity group-hover:opacity-70"
 												loading="lazy"

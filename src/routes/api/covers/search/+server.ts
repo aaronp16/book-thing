@@ -11,11 +11,10 @@ import type { RequestHandler } from './$types';
 import {
 	searchOpenLibraryCovers,
 	searchGoogleBooksCovers,
-	extractEmbeddedCoverDataUrl,
+	extractEmbeddedCoverBytes,
 	findSidecarCover
 } from '$lib/server/book-covers.js';
 import { decodeLibraryItemId, resolveLibraryItemAbsolutePath } from '$lib/server/fs-library.js';
-import * as fs from 'fs/promises';
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
 	return new Promise((resolve) => {
@@ -43,6 +42,10 @@ function getProxyDisplayUrl(externalUrl: string, source: string): string {
 	return `/api/covers/proxy?url=${encodeURIComponent(displayUrl)}`;
 }
 
+function getCurrentCoverDisplayUrl(bookId: string): string {
+	return `/api/library/cover/${bookId}?w=480&t=${Date.now()}`;
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const title = url.searchParams.get('title') ?? '';
 	const author = url.searchParams.get('author') ?? '';
@@ -60,10 +63,10 @@ export const GET: RequestHandler = async ({ url }) => {
 				const bookPath = resolveLibraryItemAbsolutePath(relativePath);
 				const sidecarPath = await findSidecarCover(bookPath);
 				if (sidecarPath) {
-					const coverBytes = await fs.readFile(sidecarPath);
-					return `data:image/jpeg;base64,${coverBytes.toString('base64')}`;
+					return getCurrentCoverDisplayUrl(bookId);
 				}
-				return await extractEmbeddedCoverDataUrl(bookPath);
+				const embeddedCover = await extractEmbeddedCoverBytes(bookPath);
+				return embeddedCover ? getCurrentCoverDisplayUrl(bookId) : null;
 			} catch {
 				return null;
 			}

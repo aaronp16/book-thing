@@ -196,7 +196,7 @@
 					throw new Error(data.error || 'Failed to update book');
 				}
 				toasts.success(`Updated: ${bookTitle}`);
-				libraryPanelRef?.refresh();
+				libraryPanelRef?.applyBookUpdate(bookId, shelfIds);
 			} catch (e) {
 				toasts.error(e instanceof Error ? e.message : 'Failed to update book');
 			}

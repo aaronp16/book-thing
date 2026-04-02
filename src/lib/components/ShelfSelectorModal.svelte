@@ -51,12 +51,14 @@
 	let selectedShelfIds = $state<Set<string>>(new Set());
 	let shelvesLoading = $state(true);
 	let shelvesError = $state<string | null>(null);
+	let cachedShelves = $state<Shelf[] | null>(null);
 
 	let covers = $state<CoverResult[]>([]);
 	let selectedCoverUrl = $state<string | null>(null); // original URL (from search results)
 	let coversLoading = $state(true);
 	let coversError = $state<string | null>(null);
 	let failedCoverUrls = $state<Set<string>>(new Set());
+	let coverCache = $state<Record<string, CoverResult[]>>({});
 
 	// Uploaded cover state
 	let uploadedCoverData = $state<string | null>(null); // base64 image bytes
@@ -90,10 +92,13 @@
 		if (isOpen && !wasOpen && book) {
 			wasOpen = true;
 			selectedShelfIds = new Set(initialShelfIds);
-			selectedCoverUrl = null;
+			if (!selectedCoverUrl || selectedCoverUrl === UPLOAD_KEY) {
+				selectedCoverUrl = null;
+			}
 			failedCoverUrls = new Set();
-			uploadedCoverData = null;
-			revokeUploadedUrl();
+			if (!uploadedCoverData) {
+				revokeUploadedUrl();
+			}
 			fetchShelves();
 			if (isEdit) fetchCovers(book);
 		} else if (!isOpen && wasOpen) {
@@ -109,6 +114,12 @@
 	}
 
 	async function fetchShelves() {
+		if (cachedShelves) {
+			shelves = cachedShelves;
+			shelvesLoading = false;
+			shelvesError = null;
+			return;
+		}
 		shelvesLoading = true;
 		shelvesError = null;
 		try {
@@ -116,6 +127,7 @@
 			if (!response.ok) throw new Error('Failed to load shelves');
 			const data = await response.json();
 			shelves = data.shelves || [];
+			cachedShelves = shelves;
 			if (shelves.length === 0) {
 				shelvesError = 'No shelves found.';
 			}
@@ -127,6 +139,15 @@
 	}
 
 	async function fetchCovers(b: BookInfo) {
+		const cacheKey = bookId ?? `${b.title}::${b.author}`;
+		if (coverCache[cacheKey]) {
+			covers = coverCache[cacheKey];
+			coversLoading = false;
+			coversError = covers.length === 0 ? 'No covers found.' : null;
+			const preSelected = covers.find((c: CoverResult) => c.preSelected);
+			if (!selectedCoverUrl && preSelected) selectedCoverUrl = preSelected.url;
+			return;
+		}
 		coversLoading = true;
 		coversError = null;
 		covers = [];
@@ -138,6 +159,7 @@
 			if (!response.ok) throw new Error('Failed to load covers');
 			const data = await response.json();
 			covers = data.covers || [];
+			coverCache = { ...coverCache, [cacheKey]: covers };
 			// Auto-select the pre-selected cover (embedded EPUB cover)
 			const preSelected = covers.find((c: CoverResult) => c.preSelected);
 			if (preSelected) selectedCoverUrl = preSelected.url;

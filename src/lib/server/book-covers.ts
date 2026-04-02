@@ -3,6 +3,11 @@ import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
 import { strFromU8, unzipSync, zipSync } from 'fflate';
+import sharp from 'sharp';
+
+const MAX_STORED_COVER_WIDTH = 1200;
+const MAX_THUMBNAIL_WIDTH = 600;
+const COVER_JPEG_QUALITY = 80;
 
 export function detectImageContentType(bytes: Buffer): string {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -82,6 +87,20 @@ async function fetchUrl(url: string): Promise<Buffer> {
 	});
 }
 
+async function normalizeCoverBytes(imageBytes: Buffer, maxWidth: number): Promise<Buffer> {
+	if (imageBytes.length < 100) return imageBytes;
+
+	try {
+		return await sharp(imageBytes, { failOn: 'none' })
+			.rotate()
+			.resize({ width: maxWidth, withoutEnlargement: true })
+			.jpeg({ quality: COVER_JPEG_QUALITY, mozjpeg: true })
+			.toBuffer();
+	} catch {
+		return imageBytes;
+	}
+}
+
 export async function findSidecarCover(bookPath: string): Promise<string | null> {
 	const coverPath = getSidecarCoverPath(bookPath);
 	try {
@@ -98,8 +117,9 @@ export async function saveCoverFromBytesForBook(
 	imageBytes: Buffer
 ): Promise<string | null> {
 	if (imageBytes.length < 100) return null;
+	const normalizedBytes = await normalizeCoverBytes(imageBytes, MAX_STORED_COVER_WIDTH);
 	const coverPath = getSidecarCoverPath(bookPath);
-	await fs.writeFile(coverPath, imageBytes);
+	await fs.writeFile(coverPath, normalizedBytes);
 	return coverPath;
 }
 
@@ -123,6 +143,7 @@ function xmlEscape(value: string): string {
 
 async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<boolean> {
 	try {
+		const normalizedBytes = await normalizeCoverBytes(imageBytes, MAX_STORED_COVER_WIDTH);
 		const buf = await fs.readFile(bookPath);
 		const zip = unzipSync(new Uint8Array(buf));
 
@@ -140,7 +161,7 @@ async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<b
 		const coverFileName = 'book-thing-cover.jpg';
 		const coverFullPath = `${opfDir}${coverFileName}`;
 
-		zip[coverFullPath] = new Uint8Array(imageBytes);
+		zip[coverFullPath] = new Uint8Array(normalizedBytes);
 
 		const manifestItem =
 			'<item id="bookthing-cover" href="book-thing-cover.jpg" media-type="image/jpeg" properties="cover-image"/>';
@@ -193,6 +214,14 @@ export async function saveCoverForBook(
 
 	const sidecar = await saveCoverFromBytesForBook(bookPath, imageBytes);
 	return sidecar ? 'sidecar' : null;
+}
+
+export async function createResizedCoverBytes(
+	imageBytes: Buffer,
+	requestedWidth: number
+): Promise<Buffer> {
+	const width = Math.max(1, Math.min(Math.round(requestedWidth), MAX_THUMBNAIL_WIDTH));
+	return normalizeCoverBytes(imageBytes, width);
 }
 
 export async function saveCoverFromUrlForBookWithFallback(

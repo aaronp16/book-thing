@@ -7,7 +7,11 @@
 
 import type { RequestHandler } from './$types';
 import * as fs from 'fs/promises';
-import { extractEmbeddedCoverBytes, findSidecarCover } from '$lib/server/book-covers.js';
+import {
+	createResizedCoverBytes,
+	extractEmbeddedCoverBytes,
+	findSidecarCover
+} from '$lib/server/book-covers.js';
 import { decodeLibraryItemId, resolveLibraryItemAbsolutePath } from '$lib/server/fs-library.js';
 
 function detectImageContentType(bytes: Buffer): string {
@@ -39,20 +43,24 @@ function detectImageContentType(bytes: Buffer): string {
 	return 'application/octet-stream';
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const relativePath = decodeLibraryItemId(params.id);
 		const bookPath = resolveLibraryItemAbsolutePath(relativePath);
+		const requestedWidth = Number(url.searchParams.get('w') ?? '0');
+		const resizeWidth =
+			Number.isFinite(requestedWidth) && requestedWidth > 0 ? requestedWidth : null;
 
 		const sidecarPath = await findSidecarCover(bookPath);
 		if (sidecarPath) {
 			const stat = await fs.stat(sidecarPath);
 			const etag = `"${stat.mtimeMs.toString(36)}"`;
 			const coverData = await fs.readFile(sidecarPath);
-			return new Response(new Uint8Array(coverData), {
+			const body = resizeWidth ? await createResizedCoverBytes(coverData, resizeWidth) : coverData;
+			return new Response(new Uint8Array(body), {
 				headers: {
 					'Content-Type': 'image/jpeg',
-					'Cache-Control': 'no-cache',
+					'Cache-Control': 'public, max-age=86400',
 					ETag: etag
 				}
 			});
@@ -62,10 +70,13 @@ export const GET: RequestHandler = async ({ params }) => {
 		if (embeddedCover) {
 			const stat = await fs.stat(bookPath);
 			const etag = `"${stat.mtimeMs.toString(36)}"`;
-			return new Response(new Uint8Array(embeddedCover), {
+			const body = resizeWidth
+				? await createResizedCoverBytes(embeddedCover, resizeWidth)
+				: embeddedCover;
+			return new Response(new Uint8Array(body), {
 				headers: {
-					'Content-Type': detectImageContentType(embeddedCover),
-					'Cache-Control': 'no-cache',
+					'Content-Type': resizeWidth ? 'image/jpeg' : detectImageContentType(embeddedCover),
+					'Cache-Control': 'public, max-age=86400',
 					ETag: etag
 				}
 			});

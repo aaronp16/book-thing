@@ -21,8 +21,10 @@ export function createKoboResourcePayload(options: {
 
 	resources.library_sync = `${shelfBase}/v1/library/sync`;
 	resources.image_host = baseUrl;
-	resources.image_url_template = `${shelfBase}/covers/{ImageId}/image`;
-	resources.image_url_quality_template = `${shelfBase}/covers/{ImageId}/image?width={width}&height={height}&quality={Quality}`;
+	resources.image_url_template = `${shelfBase}/covers/{ImageId}/image?width={Width}&height={Height}&isGreyscale=false`;
+	resources.image_url_quality_template = `${shelfBase}/covers/{ImageId}/image?width={Width}&height={Height}&quality={Quality}&isGreyscale={IsGreyscale}`;
+	resources.device_auth = `${shelfBase}/v1/auth/device`;
+	resources.device_refresh = `${shelfBase}/v1/auth/refresh`;
 	resources.auth = `${shelfBase}/v1/auth/device`;
 	resources.refresh_auth = `${shelfBase}/v1/auth/refresh`;
 	resources.initialization = `${shelfBase}/v1/initialization`;

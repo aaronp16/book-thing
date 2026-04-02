@@ -15,10 +15,17 @@ import {
 } from '$lib/server/kobo-routes.js';
 import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
-		logKoboRequest('cover', { shelf: params.shelf, bookId: book.id });
+		logKoboRequest('cover', {
+			shelf: params.shelf,
+			bookId: book.id,
+			width: url.searchParams.get('width') ?? url.searchParams.get('Width'),
+			height: url.searchParams.get('height') ?? url.searchParams.get('Height'),
+			quality: url.searchParams.get('quality') ?? url.searchParams.get('Quality'),
+			isGreyscale: url.searchParams.get('isGreyscale') ?? url.searchParams.get('IsGreyscale')
+		});
 		const absolutePath = resolveKoboBookAbsolutePath(book);
 
 		const sidecarPath = await findSidecarCover(absolutePath);

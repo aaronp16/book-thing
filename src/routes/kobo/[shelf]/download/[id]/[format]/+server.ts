@@ -6,6 +6,7 @@ import {
 	resolveKoboBookAbsolutePath,
 	resolveKoboBookOrThrow
 } from '$lib/server/kobo-library.js';
+import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
 import {
 	createKoboBookNotFoundTextResponse,
 	createKoboShelfNotFoundTextResponse,
@@ -26,6 +27,11 @@ function getContentType(extension: string): string {
 export const GET: RequestHandler = async ({ params }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
+		logKoboRequest('download', {
+			shelf: params.shelf,
+			bookId: book.id,
+			format: params.format
+		});
 		const requestedFormat = params.format.toLowerCase();
 		const bookFormat = getKoboDownloadFormat(book).toLowerCase();
 		if (requestedFormat !== bookFormat) {
@@ -51,7 +57,11 @@ export const GET: RequestHandler = async ({ params }) => {
 			return createKoboBookNotFoundTextResponse();
 		}
 
-		console.error('[kobo download] Error:', error);
+		logKoboError('download failed', error, {
+			shelf: params.shelf,
+			bookId: params.id,
+			format: params.format
+		});
 		return new Response('Failed to download book', { status: 500 });
 	}
 };

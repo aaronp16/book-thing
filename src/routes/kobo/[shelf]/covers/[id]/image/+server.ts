@@ -13,10 +13,12 @@ import {
 	isKoboBookError,
 	isKoboShelfError
 } from '$lib/server/kobo-routes.js';
+import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
 
 export const GET: RequestHandler = async ({ params }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
+		logKoboRequest('cover', { shelf: params.shelf, bookId: book.id });
 		const absolutePath = resolveKoboBookAbsolutePath(book);
 
 		const sidecarPath = await findSidecarCover(absolutePath);
@@ -59,7 +61,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			return createKoboBookNotFoundTextResponse();
 		}
 
-		console.error('[kobo cover] Error:', error);
+		logKoboError('cover failed', error, { shelf: params.shelf, bookId: params.id });
 		return new Response('Failed to load cover', { status: 500 });
 	}
 };

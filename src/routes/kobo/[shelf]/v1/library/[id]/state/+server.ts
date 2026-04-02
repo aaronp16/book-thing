@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveKoboBookOrThrow } from '$lib/server/kobo-library.js';
+import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
 import { getKoboReadingState, upsertKoboReadingState } from '$lib/server/kobo-state.js';
 import {
 	createKoboBookNotFoundJsonResponse,
@@ -84,6 +85,7 @@ function createReadingStateResponse(
 export const GET: RequestHandler = async ({ params }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
+		logKoboRequest('library/state GET', { shelf: params.shelf, bookId: book.id });
 		const state = await getKoboReadingState(book.id);
 		return json([createReadingStateResponse(book.id, state)], {
 			headers: {
@@ -98,7 +100,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			return createKoboBookNotFoundJsonResponse();
 		}
 
-		console.error('[kobo state GET] Error:', error);
+		logKoboError('library/state GET failed', error, { shelf: params.shelf, bookId: params.id });
 		return json({ error: 'Failed to load reading state' }, { status: 500 });
 	}
 };
@@ -107,6 +109,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
 		const payload = await request.json();
+		logKoboRequest('library/state PUT', { shelf: params.shelf, bookId: book.id, payload });
 		const requestReadingState = payload?.ReadingStates?.[0];
 		if (!requestReadingState) {
 			return json({ error: 'Malformed request: missing ReadingStates[0]' }, { status: 400 });
@@ -177,7 +180,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 			return createKoboBookNotFoundJsonResponse();
 		}
 
-		console.error('[kobo state PUT] Error:', error);
+		logKoboError('library/state PUT failed', error, { shelf: params.shelf, bookId: params.id });
 		return json({ error: 'Failed to update reading state' }, { status: 500 });
 	}
 };

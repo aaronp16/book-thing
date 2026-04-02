@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertKoboShelfExists, listKoboBooksForShelf } from '$lib/server/kobo-library.js';
 import { createKoboBookEntitlement, createKoboBookMetadata } from '$lib/server/kobo-metadata.js';
+import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
 import { getKoboSyncCursor, updateKoboSyncCursor } from '$lib/server/kobo-state.js';
 import {
 	buildKoboRouteUrls,
@@ -23,6 +24,14 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		const booksLastModifiedAt = cursor.booksLastModified
 			? new Date(cursor.booksLastModified)
 			: null;
+
+		logKoboRequest('library/sync', {
+			shelf: shelf.name,
+			path: url.pathname,
+			full: forceFullSync,
+			bookCount: books.length,
+			cursor
+		});
 
 		const changedBooks = books
 			.filter((book) => {
@@ -74,7 +83,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			return createKoboShelfNotFoundJsonResponse();
 		}
 
-		console.error('[kobo sync] Error:', error);
+		logKoboError('library/sync failed', error, { shelf: params.shelf, path: url.pathname });
 		return json({ error: 'Failed to sync Kobo library' }, { status: 500 });
 	}
 };

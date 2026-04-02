@@ -11,18 +11,23 @@ function stripTrailingSlash(value: string): string {
 export function createKoboResourcePayload(options: {
 	baseUrl: string;
 	shelf: KoboShelf;
+	baseResources?: Record<string, string>;
 }): KoboResourcePayload {
 	const baseUrl = stripTrailingSlash(options.baseUrl);
 	const shelfBase = `${baseUrl}/kobo/${options.shelf.encodedName}`;
+	const resources = {
+		...(options.baseResources ?? {})
+	};
+
+	resources.library_sync = `${shelfBase}/v1/library/sync`;
+	resources.image_host = baseUrl;
+	resources.image_url_template = `${shelfBase}/covers/{ImageId}/image`;
+	resources.image_url_quality_template = `${shelfBase}/covers/{ImageId}/image?width={width}&height={height}&quality={Quality}`;
+	resources.auth = `${shelfBase}/v1/auth/device`;
+	resources.refresh_auth = `${shelfBase}/v1/auth/refresh`;
+	resources.initialization = `${shelfBase}/v1/initialization`;
+
 	return {
-		Resources: {
-			library_sync: `${shelfBase}/v1/library/sync`,
-			image_host: baseUrl,
-			image_url_template: `${shelfBase}/covers/{ImageId}/image`,
-			image_url_quality_template: `${shelfBase}/covers/{ImageId}/image?width={width}&height={height}&quality={Quality}`,
-			auth: `${shelfBase}/v1/auth/device`,
-			refresh_auth: `${shelfBase}/v1/auth/refresh`,
-			initialization: `${shelfBase}/v1/initialization`
-		}
+		Resources: resources
 	};
 }

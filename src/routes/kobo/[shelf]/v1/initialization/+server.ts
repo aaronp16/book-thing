@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertKoboShelfExists } from '$lib/server/kobo-library.js';
 import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { fetchKoboStoreJson } from '$lib/server/kobo-proxy.js';
 import { createKoboShelfNotFoundJsonResponse, isKoboShelfError } from '$lib/server/kobo-routes.js';
 import { createKoboResourcePayload } from '$lib/server/kobo-resources.js';
 
@@ -9,9 +10,31 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const shelf = await assertKoboShelfExists(params.shelf);
 		logKoboRequest('initialization', { shelf: shelf.name, path: url.pathname });
+		let baseResources: Record<string, string> | undefined;
+		try {
+			const storePayload = await fetchKoboStoreJson('/v1/initialization');
+			if (
+				storePayload &&
+				typeof storePayload === 'object' &&
+				'Resources' in storePayload &&
+				storePayload.Resources &&
+				typeof storePayload.Resources === 'object'
+			) {
+				const resourceEntries = Object.entries(
+					storePayload.Resources as Record<string, unknown>
+				).filter((entry) => typeof entry[1] === 'string') as Array<[string, string]>;
+				baseResources = Object.fromEntries(resourceEntries);
+			}
+		} catch (error) {
+			logKoboError('initialization base resource fetch failed', error, {
+				shelf: shelf.name,
+				path: url.pathname
+			});
+		}
 		const payload = createKoboResourcePayload({
 			baseUrl: url.origin,
-			shelf
+			shelf,
+			baseResources
 		});
 
 		return json(payload, {

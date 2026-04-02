@@ -291,6 +291,11 @@
 		const currentShelfIds = book.shelfNames ?? (book.shelf ? [book.shelf] : []);
 		onBookClick({ id: book.id, title: book.title, author: book.author, currentShelfIds });
 	}
+
+	function handleLocalDownload(book: LibraryBook, event: MouseEvent) {
+		event.stopPropagation();
+		window.open(`/api/library/${book.id}/download`, '_blank', 'noopener,noreferrer');
+	}
 </script>
 
 <div class="flex h-full flex-col">
@@ -604,6 +609,7 @@
 											{#if onBookClick}
 												<p class="mt-0.5 text-[10px] text-blue-400">Edit cover / copy to shelf</p>
 											{/if}
+											<p class="mt-0.5 text-[10px] text-emerald-300">Download local file</p>
 										</div>
 
 										{#if confirmDeleteId === book.id}
@@ -633,6 +639,27 @@
 												</button>
 											</div>
 										{:else}
+											<button
+												type="button"
+												onclick={(e) => handleLocalDownload(book, e)}
+												class="pointer-events-auto absolute top-1.5 left-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-emerald-600 hover:text-white"
+												aria-label="Download book"
+												title="Download book"
+											>
+												<svg
+													class="h-3.5 w-3.5"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M12 3v12m0 0l4-4m-4 4l-4-4m-5 8h18"
+													/>
+												</svg>
+											</button>
 											<button
 												type="button"
 												onclick={(e) => handleDelete(book, e)}

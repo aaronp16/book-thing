@@ -51,8 +51,11 @@ export async function proxyKoboStoreRequest(options: {
 	});
 }
 
-export async function fetchKoboStoreJson(pathname: string): Promise<unknown> {
-	const response = await proxyKoboStoreRequest({ method: 'GET', pathname });
+export async function fetchKoboStoreJson(
+	pathname: string,
+	headers?: Record<string, string>
+): Promise<unknown> {
+	const response = await proxyKoboStoreRequest({ method: 'GET', pathname, headers });
 	return JSON.parse(response.body.toString('utf8'));
 }
 

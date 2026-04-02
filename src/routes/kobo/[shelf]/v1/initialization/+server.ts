@@ -6,13 +6,18 @@ import { fetchKoboStoreJson } from '$lib/server/kobo-proxy.js';
 import { createKoboShelfNotFoundJsonResponse, isKoboShelfError } from '$lib/server/kobo-routes.js';
 import { createKoboResourcePayload } from '$lib/server/kobo-resources.js';
 
-export const GET: RequestHandler = async ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, url, request }) => {
 	try {
 		const shelf = await assertKoboShelfExists(params.shelf);
 		logKoboRequest('initialization', { shelf: shelf.name, path: url.pathname });
 		let baseResources: Record<string, unknown> | undefined;
 		try {
-			const storePayload = await fetchKoboStoreJson('/v1/initialization');
+			const forwardedHeaders: Record<string, string> = {};
+			const authorization = request.headers.get('authorization');
+			if (authorization) {
+				forwardedHeaders.authorization = authorization;
+			}
+			const storePayload = await fetchKoboStoreJson('/v1/initialization', forwardedHeaders);
 			if (
 				storePayload &&
 				typeof storePayload === 'object' &&
@@ -28,6 +33,11 @@ export const GET: RequestHandler = async ({ params, url }) => {
 				path: url.pathname
 			});
 		}
+		logKoboRequest('initialization resources', {
+			shelf: shelf.name,
+			path: url.pathname,
+			usedStoreResources: Boolean(baseResources)
+		});
 		const payload = createKoboResourcePayload({
 			baseUrl: url.origin,
 			shelf,

@@ -1,7 +1,7 @@
 import type { KoboShelf } from './kobo-library.js';
 
 export interface KoboResourcePayload {
-	Resources: Record<string, string>;
+	Resources: Record<string, unknown>;
 }
 
 function stripTrailingSlash(value: string): string {
@@ -11,7 +11,7 @@ function stripTrailingSlash(value: string): string {
 export function createKoboResourcePayload(options: {
 	baseUrl: string;
 	shelf: KoboShelf;
-	baseResources?: Record<string, string>;
+	baseResources?: Record<string, unknown>;
 }): KoboResourcePayload {
 	const baseUrl = stripTrailingSlash(options.baseUrl);
 	const shelfBase = `${baseUrl}/kobo/${options.shelf.encodedName}`;

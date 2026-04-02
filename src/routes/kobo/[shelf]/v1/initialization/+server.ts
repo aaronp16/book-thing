@@ -10,7 +10,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const shelf = await assertKoboShelfExists(params.shelf);
 		logKoboRequest('initialization', { shelf: shelf.name, path: url.pathname });
-		let baseResources: Record<string, string> | undefined;
+		let baseResources: Record<string, unknown> | undefined;
 		try {
 			const storePayload = await fetchKoboStoreJson('/v1/initialization');
 			if (
@@ -20,10 +20,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 				storePayload.Resources &&
 				typeof storePayload.Resources === 'object'
 			) {
-				const resourceEntries = Object.entries(
-					storePayload.Resources as Record<string, unknown>
-				).filter((entry) => typeof entry[1] === 'string') as Array<[string, string]>;
-				baseResources = Object.fromEntries(resourceEntries);
+				baseResources = { ...(storePayload.Resources as Record<string, unknown>) };
 			}
 		} catch (error) {
 			logKoboError('initialization base resource fetch failed', error, {

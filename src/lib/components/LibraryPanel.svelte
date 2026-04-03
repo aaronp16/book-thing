@@ -48,11 +48,6 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
-	let calibreImportAvailable = $state(false);
-	let calibreImportLoading = $state(false);
-	let calibreImportRunning = $state(false);
-	let calibreImportMessage = $state<string | null>(null);
-
 	// Delete confirmation: bookId currently pending confirmation, null = none
 	let confirmDeleteId = $state<string | null>(null);
 	let deletingId = $state<string | null>(null);
@@ -116,7 +111,6 @@
 			selectedShelfId = saved === 'null' ? null : saved;
 		}
 		fetchShelves();
-		fetchCalibreImportStatus();
 	});
 
 	$effect(() => {
@@ -169,81 +163,6 @@
 			error = e instanceof Error ? e.message : 'Failed to load library';
 		} finally {
 			loading = false;
-		}
-	}
-
-	async function fetchCalibreImportStatus() {
-		calibreImportLoading = true;
-		try {
-			const response = await fetch('/api/calibre/import');
-			if (!response.ok) {
-				throw new Error('Failed to inspect Calibre import status');
-			}
-			const data = await response.json();
-			calibreImportAvailable = Boolean(data.available);
-		} catch {
-			calibreImportAvailable = false;
-		} finally {
-			calibreImportLoading = false;
-		}
-	}
-
-	async function handleCalibreImport() {
-		if (calibreImportRunning) return;
-
-		try {
-			const previewResponse = await fetch('/api/calibre/import', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ dryRun: true })
-			});
-			const previewData = await previewResponse.json();
-			if (!previewResponse.ok) {
-				throw new Error(previewData.error || 'Failed to preview Calibre import');
-			}
-
-			const preview = previewData.preview;
-			const topShelves = preview.shelfBreakdown
-				.slice(0, 5)
-				.map(
-					(item: { shelfName: string; bookCount: number }) =>
-						`${item.shelfName} (${item.bookCount})`
-				)
-				.join(', ');
-			const confirmed = confirm(
-				[
-					`This will copy ${preview.plannedCopies} file(s) from Calibre into ${preview.plannedShelves} shelf(s).`,
-					preview.unshelvedBooks > 0
-						? `${preview.unshelvedBooks} unshelved book(s) will go to Imported.`
-						: 'All books have shelf mappings.',
-					topShelves ? `Top shelves: ${topShelves}` : '',
-					'',
-					'Continue?'
-				]
-					.filter(Boolean)
-					.join('\n')
-			);
-			if (!confirmed) return;
-		} catch (e) {
-			calibreImportMessage = e instanceof Error ? e.message : 'Failed to preview Calibre import';
-			return;
-		}
-
-		calibreImportRunning = true;
-		calibreImportMessage = null;
-		try {
-			const response = await fetch('/api/calibre/import', { method: 'POST' });
-			const data = await response.json();
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to import from Calibre');
-			}
-			const summary = data.summary;
-			calibreImportMessage = `Imported ${summary.copiedFiles} file(s) into ${summary.importedShelves} shelf(s)`;
-			refresh();
-		} catch (e) {
-			calibreImportMessage = e instanceof Error ? e.message : 'Failed to import from Calibre';
-		} finally {
-			calibreImportRunning = false;
 		}
 	}
 
@@ -306,21 +225,8 @@
 				<div class="mb-4 flex items-center justify-between gap-4 sm:mb-6">
 					<div>
 						<h1 class="text-2xl font-bold text-white sm:text-3xl md:text-4xl">Library</h1>
-						{#if calibreImportMessage}
-							<p class="mt-1 text-xs text-neutral-400">{calibreImportMessage}</p>
-						{/if}
 					</div>
 					<div class="flex items-center gap-2">
-						{#if calibreImportAvailable}
-							<button
-								type="button"
-								onclick={handleCalibreImport}
-								disabled={calibreImportRunning}
-								class="rounded-full bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-							>
-								{calibreImportRunning ? 'Importing...' : 'Import From Calibre'}
-							</button>
-						{/if}
 						{#if titleRight}
 							{@render titleRight()}
 						{/if}

@@ -20,9 +20,10 @@ const SYNC_TOKEN_HEADER = 'x-kobo-synctoken';
  *   1-4-0: fix cover URLs and download handling
  *   1-5-0: fix download URLs to use UUID instead of base64url path;
  *           fix ReadingState key consistency; add description extraction
+ *   1-6-0: fix DownloadUrls field ordering; force full re-sync
  */
-const TOKEN_VERSION = '1-5-0';
-const MIN_VERSION = '1-5-0';
+const TOKEN_VERSION = '1-6-0';
+const MIN_VERSION = '1-6-0';
 
 /** Epoch timestamp for datetime.min equivalent */
 const EPOCH_MIN = 0;
@@ -84,12 +85,18 @@ export function parseSyncToken(headers: Headers): SyncTokenData {
 		const json = JSON.parse(decoded);
 
 		if (!json || typeof json !== 'object' || !json.version || !json.data) {
+			console.log(`[kobo] synctoken: missing version or data, resetting`);
 			return createEmptySyncToken();
 		}
 
 		if (json.version < MIN_VERSION) {
+			console.log(
+				`[kobo] synctoken: version ${json.version} < ${MIN_VERSION}, forcing full re-sync`
+			);
 			return createEmptySyncToken();
 		}
+
+		console.log(`[kobo] synctoken: accepted version ${json.version}`);
 
 		const data = json.data;
 		return {

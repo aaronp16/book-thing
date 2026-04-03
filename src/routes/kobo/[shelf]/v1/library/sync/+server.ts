@@ -151,8 +151,8 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 				booksLastModified: updatedToken.booksLastModified.toISOString(),
 				booksLastCreated: updatedToken.booksLastCreated.toISOString()
 			},
-			// Log first entitlement for debugging Kobo protocol issues
-			sampleEntitlement: syncResults.length > 0 ? syncResults[0] : null
+			// Log first two entitlements for debugging Kobo protocol issues
+			sampleEntitlements: syncResults.slice(0, 2)
 		});
 
 		return json(syncResults, { headers: responseHeaders });

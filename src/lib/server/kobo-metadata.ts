@@ -4,9 +4,9 @@ import { toKoboTimestamp } from './kobo-routes.js';
 
 export interface KoboDownloadDescriptor {
 	Format: string;
+	Size: number;
 	Url: string;
 	Platform: 'Generic';
-	Size: number;
 }
 
 export interface KoboBookMetadata {
@@ -27,7 +27,7 @@ export interface KoboBookMetadata {
 	Language: string;
 	PhoneticPronunciations: Record<string, never>;
 	PublicationDate: string;
-	Publisher: { Name: string; Imprint: string };
+	Publisher: { Imprint: string; Name: string };
 	RevisionId: string;
 	Title: string;
 	WorkId: string;
@@ -93,9 +93,9 @@ export function createKoboDownloadDescriptors(
 ): KoboDownloadDescriptor[] {
 	return toKoboDownloadFormats(book.extension).map((format) => ({
 		Format: format,
+		Size: book.size,
 		Url: downloadUrl,
-		Platform: 'Generic' as const,
-		Size: book.size
+		Platform: 'Generic' as const
 	}));
 }
 
@@ -143,7 +143,7 @@ export async function createKoboBookMetadata(
 		Language: 'en',
 		PhoneticPronunciations: {},
 		PublicationDate: toKoboTimestamp(book.modifiedAt),
-		Publisher: { Name: '', Imprint: '' },
+		Publisher: { Imprint: '', Name: '' },
 		RevisionId: koboId,
 		Title: metadata.title,
 		WorkId: koboId

@@ -13,9 +13,9 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		let baseResources: Record<string, unknown> | undefined;
 		try {
 			const forwardedHeaders: Record<string, string> = {};
-			const authorization = request.headers.get('authorization');
-			if (authorization) {
-				forwardedHeaders.authorization = authorization;
+			for (const [key, value] of request.headers.entries()) {
+				if (key.toLowerCase() === 'host') continue;
+				forwardedHeaders[key] = value;
 			}
 			const storePayload = await fetchKoboStoreJson('/v1/initialization', forwardedHeaders);
 			if (

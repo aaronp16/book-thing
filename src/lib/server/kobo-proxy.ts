@@ -56,6 +56,11 @@ export async function fetchKoboStoreJson(
 	headers?: Record<string, string>
 ): Promise<unknown> {
 	const response = await proxyKoboStoreRequest({ method: 'GET', pathname, headers });
+	if (response.status < 200 || response.status >= 300) {
+		throw new Error(
+			`Kobo store request failed: ${response.status} ${response.body.toString('utf8').slice(0, 500)}`
+		);
+	}
 	return JSON.parse(response.body.toString('utf8'));
 }
 

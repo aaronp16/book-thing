@@ -60,6 +60,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			headers: {
 				'Content-Type': getContentType(book.extension),
 				'Content-Disposition': `attachment; filename="${filename.replace(/"/g, '')}"`,
+				'Content-Length': String(fileData.byteLength),
 				'Cache-Control': 'no-cache'
 			}
 		});

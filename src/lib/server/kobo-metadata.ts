@@ -71,27 +71,36 @@ function getMimeType(extension: string): string {
 }
 
 /**
- * Map file extension to the Kobo format string expected by the device.
- * Kobo devices recognize: KEPUB, EPUB, EPUB3, EPUB3FL, PDF
+ * Map file extension to Kobo format strings expected by the device.
+ * Calibre-web maps EPUB to both EPUB3 and EPUB entries (the device may
+ * prefer EPUB3). KEPUB gets a single KEPUB entry.
+ *
+ * KOBO_FORMATS equivalent from calibre-web:
+ *   {"KEPUB": ["KEPUB"], "EPUB": ["EPUB3", "EPUB"]}
  */
-function toKoboDownloadFormat(extension: string): string {
+function toKoboDownloadFormats(extension: string): string[] {
 	const ext = extension.toLowerCase();
-	if (ext === 'kepub' || ext === 'kepub.epub') return 'KEPUB';
-	if (ext === 'epub') return 'EPUB';
-	if (ext === 'pdf') return 'PDF';
-	return ext.toUpperCase();
+	if (ext === 'kepub' || ext === 'kepub.epub') return ['KEPUB'];
+	if (ext === 'epub') return ['EPUB3', 'EPUB'];
+	if (ext === 'pdf') return ['PDF'];
+	return [ext.toUpperCase()];
 }
 
-export function createKoboDownloadDescriptor(
+/**
+ * Create download descriptors for a book. For EPUB books, this returns
+ * two entries (EPUB3 + EPUB) matching calibre-web's behavior, since the
+ * Kobo device may require the EPUB3 format entry to trigger downloads.
+ */
+export function createKoboDownloadDescriptors(
 	book: KoboLibraryBook,
 	downloadUrl: string
-): KoboDownloadDescriptor {
-	return {
-		Format: toKoboDownloadFormat(book.extension),
+): KoboDownloadDescriptor[] {
+	return toKoboDownloadFormats(book.extension).map((format) => ({
+		Format: format,
 		Url: downloadUrl,
-		Platform: 'Generic',
+		Platform: 'Generic' as const,
 		Size: book.size
-	};
+	}));
 }
 
 export function createKoboBookEntitlement(book: KoboLibraryBook): KoboBookEntitlement {
@@ -127,7 +136,7 @@ export async function createKoboBookMetadata(
 		CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
 		CurrentLoveDisplayPrice: { TotalAmount: 0 },
 		Description: null,
-		DownloadUrls: [createKoboDownloadDescriptor(book, downloadUrl)],
+		DownloadUrls: createKoboDownloadDescriptors(book, downloadUrl),
 		EntitlementId: koboId,
 		ExternalIds: [],
 		Genre: '00000000-0000-0000-0000-000000000001',

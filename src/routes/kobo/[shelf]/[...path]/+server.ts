@@ -1,76 +1,87 @@
 import type { RequestHandler } from './$types';
 import { assertKoboShelfExists } from '$lib/server/kobo-library.js';
-import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
-import { filterKoboProxyResponseHeaders, proxyKoboStoreRequest } from '$lib/server/kobo-proxy.js';
+import { logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 import { isKoboShelfError } from '$lib/server/kobo-routes.js';
 
-function buildProxyPath(pathValue: string | undefined): string {
+const KOBO_STORE_BASE_URL = 'https://storeapi.kobo.com';
+
+function buildStorePath(pathValue: string | undefined): string {
 	const joined = pathValue ?? '';
 	return joined.startsWith('/') ? joined : `/${joined}`;
 }
 
-async function handleProxyRequest(args: {
+/**
+ * Catch-all route for unhandled Kobo API paths.
+ *
+ * Follows calibre-web's approach:
+ * - GET/HEAD requests: 307 redirect to storeapi.kobo.com so the device can
+ *   talk to the store directly (with its own auth tokens).
+ * - Other methods: return empty JSON {} with 200 (the device doesn't need
+ *   real responses from unhandled endpoints to proceed with library sync).
+ */
+async function handleCatchAll(args: {
 	method: string;
 	params: { shelf: string; path?: string };
-	request: Request;
 	url: URL;
 }): Promise<Response> {
 	try {
 		await assertKoboShelfExists(args.params.shelf);
-		logKoboRequest('proxy', {
+		const storePath = buildStorePath(args.params.path);
+
+		logKoboRequest('catch-all', {
 			shelf: args.params.shelf,
 			method: args.method,
-			path: buildProxyPath(args.params.path),
+			path: storePath,
 			search: args.url.search
 		});
-		const body =
-			args.method === 'GET' || args.method === 'HEAD'
-				? undefined
-				: Buffer.from(await args.request.arrayBuffer());
-		const headers: Record<string, string> = {};
-		for (const [key, value] of args.request.headers.entries()) {
-			if (key.toLowerCase() === 'host') continue;
-			headers[key] = value;
+
+		if (args.method === 'GET' || args.method === 'HEAD') {
+			const storeUrl = `${KOBO_STORE_BASE_URL}${storePath}${args.url.search}`;
+			logKoboRequest('catch-all redirect', {
+				shelf: args.params.shelf,
+				method: args.method,
+				path: storePath,
+				redirectTo: storeUrl
+			});
+			return new Response(null, {
+				status: 307,
+				headers: {
+					Location: storeUrl
+				}
+			});
 		}
 
-		const proxied = await proxyKoboStoreRequest({
-			method: args.method,
-			pathname: buildProxyPath(args.params.path),
-			search: args.url.search,
-			headers,
-			body
-		});
-
-		logKoboRequest('proxy response', {
+		// Non-GET methods: return empty JSON
+		logKoboRequest('catch-all empty response', {
 			shelf: args.params.shelf,
 			method: args.method,
-			path: buildProxyPath(args.params.path),
-			status: proxied.status,
-			bodyLength: proxied.body.length
+			path: storePath
 		});
-
-		return new Response(new Uint8Array(proxied.body), {
-			status: proxied.status,
-			headers: filterKoboProxyResponseHeaders(proxied.headers)
+		return new Response('{}', {
+			status: 200,
+			headers: {
+				'Content-Type': 'application/json; charset=utf-8'
+			}
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
-			logKoboWarn('proxy shelf not found', {
+			logKoboWarn('catch-all shelf not found', {
 				shelf: args.params.shelf,
 				method: args.method,
-				path: buildProxyPath(args.params.path)
+				path: buildStorePath(args.params.path)
 			});
 			return new Response('Shelf not found', { status: 404 });
 		}
 
-		logKoboError('proxy failed', error, {
+		// For any unexpected error, return empty JSON rather than failing
+		logKoboWarn('catch-all error', {
 			shelf: args.params.shelf,
 			method: args.method,
-			path: buildProxyPath(args.params.path),
-			search: args.url.search
+			path: buildStorePath(args.params.path),
+			error: error instanceof Error ? error.message : String(error)
 		});
 		return new Response('{}', {
-			status: 502,
+			status: 200,
 			headers: {
 				'Content-Type': 'application/json; charset=utf-8'
 			}
@@ -78,20 +89,20 @@ async function handleProxyRequest(args: {
 	}
 }
 
-export const GET: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'GET', params, request, url });
+export const GET: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'GET', params, url });
 
-export const POST: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'POST', params, request, url });
+export const POST: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'POST', params, url });
 
-export const PUT: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'PUT', params, request, url });
+export const PUT: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'PUT', params, url });
 
-export const PATCH: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'PATCH', params, request, url });
+export const PATCH: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'PATCH', params, url });
 
-export const DELETE: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'DELETE', params, request, url });
+export const DELETE: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'DELETE', params, url });
 
-export const HEAD: RequestHandler = async ({ params, request, url }) =>
-	handleProxyRequest({ method: 'HEAD', params, request, url });
+export const HEAD: RequestHandler = async ({ params, url }) =>
+	handleCatchAll({ method: 'HEAD', params, url });

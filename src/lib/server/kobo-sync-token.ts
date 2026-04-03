@@ -15,9 +15,11 @@ const SYNC_TOKEN_HEADER = 'x-kobo-synctoken';
  *   1-1-0: calibre-web compatible format
  *   1-2-0: switched book IDs from base64url paths to UUID v5 format;
  *           old tokens must be invalidated to force a full re-sync
+ *   1-3-0: added EPUB3+EPUB dual format DownloadUrls;
+ *           force re-sync so device gets updated entitlements
  */
-const TOKEN_VERSION = '1-2-0';
-const MIN_VERSION = '1-2-0';
+const TOKEN_VERSION = '1-3-0';
+const MIN_VERSION = '1-3-0';
 
 /** Epoch timestamp for datetime.min equivalent */
 const EPOCH_MIN = 0;

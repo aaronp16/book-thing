@@ -14,7 +14,7 @@ export interface KoboBookMetadata {
 	CrossRevisionId: string;
 	CurrentDisplayPrice: { CurrencyCode: string; TotalAmount: number };
 	CurrentLoveDisplayPrice: { TotalAmount: number };
-	Description: string | null;
+	Description: string;
 	DownloadUrls: KoboDownloadDescriptor[];
 	EntitlementId: string;
 	ExternalIds: string[];
@@ -26,7 +26,7 @@ export interface KoboBookMetadata {
 	Language: string;
 	PhoneticPronunciations: Record<string, never>;
 	PublicationDate: string;
-	Publisher: { Name: string | null; Imprint: string };
+	Publisher: { Name: string; Imprint: string };
 	RevisionId: string;
 	Title: string;
 	WorkId: string;
@@ -135,7 +135,7 @@ export async function createKoboBookMetadata(
 		CrossRevisionId: koboId,
 		CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
 		CurrentLoveDisplayPrice: { TotalAmount: 0 },
-		Description: null,
+		Description: '',
 		DownloadUrls: createKoboDownloadDescriptors(book, downloadUrl),
 		EntitlementId: koboId,
 		ExternalIds: [],
@@ -147,7 +147,7 @@ export async function createKoboBookMetadata(
 		Language: 'en',
 		PhoneticPronunciations: {},
 		PublicationDate: toKoboTimestamp(book.modifiedAt),
-		Publisher: { Name: null, Imprint: '' },
+		Publisher: { Name: '', Imprint: '' },
 		RevisionId: koboId,
 		Title: metadata.title,
 		WorkId: koboId

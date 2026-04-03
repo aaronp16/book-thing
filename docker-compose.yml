@@ -9,6 +9,7 @@ services:
       - MAM_ID=${MAM_ID}
       - MAM_UID=${MAM_UID}
       - BOOKS_DIR=/books
+      - ORIGIN=https://192.168.1.69
       - QB_URL=${QB_URL}
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}

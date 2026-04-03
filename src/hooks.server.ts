@@ -24,5 +24,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 		});
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+
+	// Log response status for kobo routes to help debug download/cover failures
+	if (event.url.pathname.startsWith('/kobo/')) {
+		logKoboRequest('response', {
+			method: event.request.method,
+			path: event.url.pathname,
+			status: response.status
+		});
+	}
+
+	return response;
 };

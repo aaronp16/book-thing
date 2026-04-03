@@ -120,10 +120,11 @@ export async function scanLibrary(): Promise<LibraryScanResult> {
 }
 
 /**
- * Ebook format priority for Kobo devices (lower index = higher priority).
- * When a torrent contains multiple formats, we pick the best one.
+ * Format priority when a torrent contains multiple formats of the same book.
+ * epub is preferred over kepub — kepub is Kobo's proprietary variant and
+ * offers no benefit outside a Kobo device. Lower index = higher priority.
  */
-const KOBO_FORMAT_PRIORITY = ['.epub', '.kepub', '.mobi', '.azw3', '.fb2', '.pdf'];
+const FORMAT_PRIORITY = ['.epub', '.mobi', '.azw3', '.fb2', '.kepub', '.pdf'];
 
 /**
  * Translate a qBittorrent content_path to a path accessible inside our container.
@@ -146,7 +147,7 @@ async function collectEbooks(dirPath: string, results: string[] = []): Promise<s
 			await collectEbooks(fullPath, results);
 		} else if (entry.isFile()) {
 			const ext = path.extname(entry.name).toLowerCase();
-			if (KOBO_FORMAT_PRIORITY.includes(ext)) {
+			if (FORMAT_PRIORITY.includes(ext)) {
 				results.push(fullPath);
 			}
 		}
@@ -156,8 +157,8 @@ async function collectEbooks(dirPath: string, results: string[] = []): Promise<s
 
 /**
  * From a list of absolute ebook paths, pick one per unique stem (basename without
- * extension) using Kobo format priority. This means for a series with one book per
- * subfolder we get one file per book, and if a folder has e.g. both .epub and .pdf
+ * extension) using format priority. This means for a series with one book per
+ * subfolder we get one file per book, and if a folder has e.g. both .epub and .kepub
  * of the same title we take only the .epub.
  */
 function pickBestPerBook(files: string[]): string[] {
@@ -173,8 +174,8 @@ function pickBestPerBook(files: string[]): string[] {
 	for (const candidates of byTitle.values()) {
 		// Sort candidates by format priority, pick the best one
 		candidates.sort((a, b) => {
-			const ai = KOBO_FORMAT_PRIORITY.indexOf(path.extname(a).toLowerCase());
-			const bi = KOBO_FORMAT_PRIORITY.indexOf(path.extname(b).toLowerCase());
+			const ai = FORMAT_PRIORITY.indexOf(path.extname(a).toLowerCase());
+			const bi = FORMAT_PRIORITY.indexOf(path.extname(b).toLowerCase());
 			return ai - bi;
 		});
 		chosen.push(candidates[0]);
@@ -232,7 +233,7 @@ export async function copyBookToLibrary(
 		if (stat.isFile()) {
 			const ext = path.extname(localPath).toLowerCase();
 			console.log(`[library] Single file detected, extension: ${ext}`);
-			if (!KOBO_FORMAT_PRIORITY.includes(ext)) {
+			if (!FORMAT_PRIORITY.includes(ext)) {
 				console.warn(`[library] Skipping non-ebook file: ${localPath}`);
 				return libraryItemIds;
 			}

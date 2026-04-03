@@ -5,6 +5,7 @@ import { env } from './env.js';
 const IGNORED_SHELF_NAMES = new Set(['.torrents']);
 const EBOOK_EXTENSIONS = new Set([
 	'.epub',
+	'.kepub',
 	'.mobi',
 	'.azw',
 	'.azw3',

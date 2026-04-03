@@ -7,6 +7,7 @@ import { ensureShelfDirectory, getShelfPath, listShelfDirectories } from './fs-s
 
 export const FILESYSTEM_EBOOK_EXTENSIONS = new Set([
 	'.epub',
+	'.kepub',
 	'.mobi',
 	'.azw',
 	'.azw3',

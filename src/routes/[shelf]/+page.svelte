@@ -39,7 +39,7 @@
 		<ul class="book-list">
 			{#each data.books as book}
 				<li>
-					<a href="/api/library/{book.id}/download" class="book-link">
+					<a href="/api/library/{book.id}/download/{book.downloadFilename}" class="book-link">
 						<span class="book-title">{book.title}</span>
 						{#if book.author}
 							<span class="book-author">by {book.author}</span>

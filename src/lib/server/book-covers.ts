@@ -141,6 +141,16 @@ function xmlEscape(value: string): string {
 		.replace(/'/g, '&apos;');
 }
 
+async function getJpegDimensions(buf: Buffer): Promise<{ width: number; height: number } | null> {
+	try {
+		const meta = await sharp(buf, { failOn: 'none' }).metadata();
+		if (meta.width && meta.height) return { width: meta.width, height: meta.height };
+	} catch {
+		// fall through
+	}
+	return null;
+}
+
 async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<boolean> {
 	try {
 		const normalizedBytes = await normalizeCoverBytes(imageBytes, MAX_STORED_COVER_WIDTH);
@@ -173,6 +183,21 @@ async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<b
 			}
 		}
 
+		// Strip properties="cover-image" from every manifest item that isn't ours,
+		// so the Kobo (and other readers) don't see two competing cover declarations.
+		opf = opf.replace(
+			/(<item\b(?![^>]*\bid=["']bookthing-cover["'])[^>]*?)\s+properties=["']cover-image["']([^>]*?\/>)/gi,
+			'$1$2'
+		);
+		// Also handle properties containing cover-image alongside other values
+		opf = opf.replace(
+			/(<item\b(?![^>]*\bid=["']bookthing-cover["'])[^>]*?)\s+properties=["']([^"']*)\bcover-image\b([^"']*)["']([^>]*?\/>)/gi,
+			(_, before, pre, post, after) => {
+				const remaining = `${pre}${post}`.trim();
+				return remaining ? `${before} properties="${remaining}"${after}` : `${before}${after}`;
+			}
+		);
+
 		if (/<meta\b[^>]+\bname=["']cover["']/i.test(opf)) {
 			opf = opf.replace(
 				/<meta\b([^>]*?)\bname=["']cover["']([^>]*?)\bcontent=["'][^"']*["']([^>]*?)\/>/i,
@@ -192,6 +217,53 @@ async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<b
 		}
 
 		zip[opfPath] = new TextEncoder().encode(opf);
+
+		// Patch the titlepage.xhtml referenced by <guide type="cover"> so the
+		// Kobo's guide-based cover extraction also picks up our cover image.
+		// The Kobo follows the guide reference and extracts the first image from
+		// that page — which would otherwise remain pointing at the original cover.
+		const guideCoverMatch =
+			opf.match(/<reference\b[^>]+\btype=["']cover["'][^>]+\bhref=["']([^"'#]+)[^"']*["']/i) ??
+			opf.match(/<reference\b[^>]+\bhref=["']([^"'#]+)[^"']*["'][^>]+\btype=["']cover["']/i);
+		if (guideCoverMatch) {
+			const titlepageHref = guideCoverMatch[1];
+			const titlepageFullPath = `${opfDir}${titlepageHref}`;
+			const titlepageData = zip[titlepageFullPath];
+			if (titlepageData) {
+				// Compute relative path from the titlepage's directory to our cover
+				const tpDir = titlepageFullPath.includes('/')
+					? titlepageFullPath.slice(0, titlepageFullPath.lastIndexOf('/') + 1)
+					: '';
+				// e.g. opfDir="", coverFullPath="book-thing-cover.jpg", tpDir="text/"
+				// => rel = "../book-thing-cover.jpg"
+				const coverRelToTp = path.posix.relative(tpDir, coverFullPath);
+
+				const dims = await getJpegDimensions(normalizedBytes);
+				const w = dims?.width ?? 600;
+				const h = dims?.height ?? 900;
+
+				const newTitlepage = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="calibre:cover" content="true"/>
+    <title>Cover</title>
+    <style type="text/css">@page{padding:0pt;margin:0pt}body{text-align:center;padding:0pt;margin:0pt}</style>
+  </head>
+  <body>
+    <div>
+      <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+           width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <image width="${w}" height="${h}" xlink:href="${xmlEscape(coverRelToTp)}"/>
+      </svg>
+    </div>
+  </body>
+</html>`;
+				zip[titlepageFullPath] = new TextEncoder().encode(newTitlepage);
+			}
+		}
+
 		const updated = zipSync(zip, { level: 0 });
 		await fs.writeFile(bookPath, Buffer.from(updated));
 		return true;

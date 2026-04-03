@@ -1,9 +1,7 @@
 import * as fs from 'fs/promises';
-import * as crypto from 'crypto';
 import * as path from 'path';
 import type { RequestHandler } from './$types';
 import { decodeLibraryItemId, resolveLibraryItemAbsolutePath } from '$lib/server/fs-library.js';
-import { unzipSync } from 'fflate';
 
 function getContentType(extension: string): string {
 	const ext = extension.toLowerCase();
@@ -16,21 +14,6 @@ function getContentType(extension: string): string {
 	return 'application/octet-stream';
 }
 
-// Return an 8-char hash of the epub's cover image bytes (book-thing-cover.jpg
-// if present, otherwise the full file). This makes the download filename
-// unique per cover so the Kobo treats every cover change as a new file and
-// re-extracts the cover rather than reusing a stale cache entry.
-function epubCoverHash(fileData: Buffer): string {
-	try {
-		const zip = unzipSync(new Uint8Array(fileData));
-		const coverEntry = Object.keys(zip).find((k) => k.endsWith('book-thing-cover.jpg'));
-		const source = coverEntry ? zip[coverEntry] : new Uint8Array(fileData);
-		return crypto.createHash('md5').update(source).digest('hex').slice(0, 8);
-	} catch {
-		return crypto.createHash('md5').update(fileData).digest('hex').slice(0, 8);
-	}
-}
-
 export const GET: RequestHandler = async ({ params }) => {
 	const encodedId = params.id;
 	if (!encodedId) {
@@ -41,24 +24,19 @@ export const GET: RequestHandler = async ({ params }) => {
 		const relativePath = decodeLibraryItemId(encodedId);
 		const absolutePath = resolveLibraryItemAbsolutePath(relativePath);
 		const fileData = await fs.readFile(absolutePath);
-		const ext = path.extname(absolutePath);
-		const stem = path.basename(absolutePath, ext);
-
-		let filename = path.basename(absolutePath);
-		if (ext.toLowerCase() === '.epub') {
-			const hash = epubCoverHash(fileData);
-			filename = `${stem}-${hash}${ext}`;
-		}
+		// Use the filename from the URL directly — it already contains the cover
+		// hash, so the Kobo will save it under a name unique to this cover version.
+		const filename = params.filename || path.basename(absolutePath);
 
 		return new Response(new Uint8Array(fileData), {
 			headers: {
-				'Content-Type': getContentType(ext),
+				'Content-Type': getContentType(path.extname(filename)),
 				'Content-Disposition': `attachment; filename="${filename.replace(/"/g, '')}"`,
 				'Cache-Control': 'no-cache'
 			}
 		});
 	} catch (error) {
-		console.error(`[api/library/${encodedId}/download] Error:`, error);
+		console.error(`[api/library/${encodedId}/download/${params.filename}] Error:`, error);
 		return new Response('Failed to download book', { status: 500 });
 	}
 };

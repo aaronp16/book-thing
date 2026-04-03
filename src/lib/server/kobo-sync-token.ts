@@ -9,8 +9,15 @@
  */
 
 const SYNC_TOKEN_HEADER = 'x-kobo-synctoken';
-const TOKEN_VERSION = '1-1-0';
-const MIN_VERSION = '1-0-0';
+/**
+ * Token version history:
+ *   1-0-0: initial
+ *   1-1-0: calibre-web compatible format
+ *   1-2-0: switched book IDs from base64url paths to UUID v5 format;
+ *           old tokens must be invalidated to force a full re-sync
+ */
+const TOKEN_VERSION = '1-2-0';
+const MIN_VERSION = '1-2-0';
 
 /** Epoch timestamp for datetime.min equivalent */
 const EPOCH_MIN = 0;

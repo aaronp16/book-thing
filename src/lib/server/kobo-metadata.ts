@@ -1,5 +1,6 @@
 import { readBookMetadata } from './book-metadata.js';
 import type { KoboLibraryBook, KoboShelf } from './kobo-library.js';
+import { toKoboTimestamp } from './kobo-routes.js';
 
 export interface KoboDownloadDescriptor {
 	Format: string;
@@ -53,11 +54,6 @@ export interface KoboBookEntitlement {
 	OriginCategory: 'Imported';
 	RevisionId: string;
 	Status: 'Active';
-}
-
-function toKoboTimestamp(value: string | Date): string {
-	const date = typeof value === 'string' ? new Date(value) : value;
-	return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function getMimeType(extension: string): string {
@@ -135,7 +131,7 @@ export async function createKoboBookMetadata(
 		CrossRevisionId: koboId,
 		CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
 		CurrentLoveDisplayPrice: { TotalAmount: 0 },
-		Description: '',
+		Description: metadata.description || '',
 		DownloadUrls: createKoboDownloadDescriptors(book, downloadUrl),
 		EntitlementId: koboId,
 		ExternalIds: [],
@@ -153,9 +149,14 @@ export async function createKoboBookMetadata(
 		WorkId: koboId
 	};
 
+	// Calibre-web always includes ContributorRoles and Contributors
+	// (with Contributors=null when no author). We provide empty arrays instead.
 	if (hasAuthor) {
 		result.Contributors = [metadata.author!];
 		result.ContributorRoles = [{ Name: metadata.author! }];
+	} else {
+		result.Contributors = [];
+		result.ContributorRoles = [];
 	}
 
 	return result;

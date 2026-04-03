@@ -26,7 +26,9 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		logKoboRequest('library/metadata response', {
 			shelf: shelf.name,
 			bookId: book.id,
-			title: book.title
+			koboId: book.koboId,
+			title: book.title,
+			metadata
 		});
 
 		return json([metadata], {

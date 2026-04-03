@@ -18,9 +18,11 @@ const SYNC_TOKEN_HEADER = 'x-kobo-synctoken';
  *   1-3-0: added EPUB3+EPUB dual format DownloadUrls;
  *           force re-sync so device gets updated entitlements
  *   1-4-0: fix cover URLs and download handling
+ *   1-5-0: fix download URLs to use UUID instead of base64url path;
+ *           fix ReadingState key consistency; add description extraction
  */
-const TOKEN_VERSION = '1-4-0';
-const MIN_VERSION = '1-4-0';
+const TOKEN_VERSION = '1-5-0';
+const MIN_VERSION = '1-5-0';
 
 /** Epoch timestamp for datetime.min equivalent */
 const EPOCH_MIN = 0;

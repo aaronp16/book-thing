@@ -10,7 +10,7 @@ export function toKoboTimestamp(value: string | Date | null | undefined): string
 export function buildKoboRouteUrls(baseUrl: string, shelf: KoboShelf, book: KoboLibraryBook) {
 	const shelfBase = `${baseUrl}/kobo/${shelf.encodedName}`;
 	return {
-		downloadUrl: `${shelfBase}/download/${book.id}/${book.koboFormat.toLowerCase()}`,
+		downloadUrl: `${shelfBase}/download/${book.koboId}/${book.koboFormat.toLowerCase()}`,
 		/** Kobo UUID for the device protocol (used as CoverImageId, EntitlementId, etc.) */
 		koboId: book.koboId
 	};

@@ -96,7 +96,8 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			};
 
 			// Include ReadingState in entitlement (matches calibre-web behavior)
-			const readingState = await getKoboReadingState(book.id);
+			// Use koboId (UUID) for reading state lookup — this is what the device uses
+			const readingState = await getKoboReadingState(book.koboId);
 			entitlement.ReadingState = createReadingStateForSync(
 				book.koboId,
 				book.modifiedAt,

@@ -85,11 +85,11 @@ function createReadingStateResponse(
 export const GET: RequestHandler = async ({ params }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
-		logKoboRequest('library/state GET', { shelf: params.shelf, bookId: book.id });
-		const state = await getKoboReadingState(book.id);
+		logKoboRequest('library/state GET', { shelf: params.shelf, bookId: book.koboId });
+		const state = await getKoboReadingState(book.koboId);
 		logKoboRequest('library/state GET response', {
 			shelf: params.shelf,
-			bookId: book.id,
+			bookId: book.koboId,
 			status: state?.status ?? 'ReadyToRead'
 		});
 		return json([createReadingStateResponse(book.koboId, state)], {
@@ -116,23 +116,23 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 	try {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
 		const payload = await request.json();
-		logKoboRequest('library/state PUT', { shelf: params.shelf, bookId: book.id, payload });
+		logKoboRequest('library/state PUT', { shelf: params.shelf, bookId: book.koboId, payload });
 		const requestReadingState = payload?.ReadingStates?.[0];
 		if (!requestReadingState) {
 			logKoboWarn('library/state PUT malformed request', {
 				shelf: params.shelf,
-				bookId: book.id,
+				bookId: book.koboId,
 				payloadKeys: payload ? Object.keys(payload) : []
 			});
 			return json({ error: 'Malformed request: missing ReadingStates[0]' }, { status: 400 });
 		}
 
-		const currentState = await getKoboReadingState(book.id);
+		const currentState = await getKoboReadingState(book.koboId);
 		const newStatus = fromKoboReadStatus(requestReadingState?.StatusInfo?.Status);
 		const wasReading = currentState?.status === 'Reading';
 		const isReading = newStatus === 'Reading';
 
-		const nextState = await upsertKoboReadingState(book.id, {
+		const nextState = await upsertKoboReadingState(book.koboId, {
 			status: newStatus,
 			timesStartedReading:
 				isReading && !wasReading
@@ -173,7 +173,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 
 		logKoboRequest('library/state PUT response', {
 			shelf: params.shelf,
-			bookId: book.id,
+			bookId: book.koboId,
 			status: nextState.status,
 			progressPercent: nextState.progressPercent
 		});

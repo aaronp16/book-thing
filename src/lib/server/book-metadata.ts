@@ -5,6 +5,7 @@ import { strFromU8, unzipSync } from 'fflate';
 export interface BookMetadata {
 	title: string;
 	author: string;
+	description: string | null;
 }
 
 export function parseFilenameMetadata(filename: string): BookMetadata {
@@ -12,9 +13,9 @@ export function parseFilenameMetadata(filename: string): BookMetadata {
 	const cleaned = stem.replace(/\s*\([A-Za-z0-9]+\)\s*$/, '').trim();
 	const dashMatch = cleaned.match(/^(.+?)\s+-\s+(.+)$/);
 	if (dashMatch) {
-		return { title: dashMatch[1].trim(), author: dashMatch[2].trim() };
+		return { title: dashMatch[1].trim(), author: dashMatch[2].trim(), description: null };
 	}
-	return { title: cleaned, author: 'Unknown' };
+	return { title: cleaned, author: 'Unknown', description: null };
 }
 
 function parseFilenameAuthor(filename: string): string {
@@ -40,12 +41,14 @@ export async function readEpubMetadata(filePath: string): Promise<BookMetadata> 
 
 		const titleMatch = opf.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
 		const authorMatch = opf.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
+		const descriptionMatch = opf.match(/<dc:description[^>]*>([\s\S]*?)<\/dc:description>/i);
 
 		const title = titleMatch?.[1]?.trim() || null;
 		const author = authorMatch?.[1]?.trim() || null;
+		const description = descriptionMatch?.[1]?.trim() || null;
 
-		if (title && author) return { title, author };
-		if (title) return { title, author: parseFilenameAuthor(filename) };
+		if (title && author) return { title, author, description };
+		if (title) return { title, author: parseFilenameAuthor(filename), description };
 		throw new Error('Missing dc:title in OPF');
 	} catch {
 		return parseFilenameMetadata(filename);
@@ -112,8 +115,10 @@ export async function readMobiMetadata(filePath: string): Promise<BookMetadata> 
 
 		const finalTitle = (exthTitle || title || '').trim() || null;
 		const finalAuthor = (author || '').trim() || null;
-		if (finalTitle && finalAuthor) return { title: finalTitle, author: finalAuthor };
-		if (finalTitle) return { title: finalTitle, author: parseFilenameAuthor(filename) };
+		if (finalTitle && finalAuthor)
+			return { title: finalTitle, author: finalAuthor, description: null };
+		if (finalTitle)
+			return { title: finalTitle, author: parseFilenameAuthor(filename), description: null };
 		throw new Error('No title found in MOBI headers');
 	} catch {
 		return parseFilenameMetadata(filename);
@@ -163,8 +168,8 @@ export async function readPdfMetadata(filePath: string): Promise<BookMetadata> {
 
 		const title = extractField('Title');
 		const author = extractField('Author');
-		if (title && author) return { title, author };
-		if (title) return { title, author: parseFilenameAuthor(filename) };
+		if (title && author) return { title, author, description: null };
+		if (title) return { title, author: parseFilenameAuthor(filename), description: null };
 		throw new Error('No /Title in PDF Info dictionary');
 	} catch {
 		return parseFilenameMetadata(filename);

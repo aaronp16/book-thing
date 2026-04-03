@@ -173,6 +173,31 @@ async function collectShelfBookPaths(dirPath: string, results: string[] = []): P
 	return results;
 }
 
+// Priority order for deduplication: lower index = higher priority.
+// When epub and kepub of the same book exist side-by-side, we keep the epub.
+const FORMAT_PRIORITY: string[] = ['.epub', '.mobi', '.azw', '.azw3', '.fb2', '.kepub', '.pdf'];
+
+function formatPriority(filePath: string): number {
+	const ext = path.extname(filePath).toLowerCase();
+	const idx = FORMAT_PRIORITY.indexOf(ext);
+	return idx === -1 ? FORMAT_PRIORITY.length : idx;
+}
+
+function deduplicateBookPaths(filePaths: string[]): string[] {
+	// Key: directory + lowercase stem.  Value: currently-winning path.
+	const best = new Map<string, string>();
+	for (const p of filePaths) {
+		const dir = path.dirname(p);
+		const stem = path.basename(p, path.extname(p)).toLowerCase();
+		const key = `${dir}\0${stem}`;
+		const current = best.get(key);
+		if (!current || formatPriority(p) < formatPriority(current)) {
+			best.set(key, p);
+		}
+	}
+	return Array.from(best.values());
+}
+
 export async function scanFilesystemLibrary(shelfName?: string): Promise<FilesystemLibraryItem[]> {
 	const shelves = shelfName
 		? [{ name: shelfName, path: getShelfPath(shelfName) }]
@@ -180,7 +205,8 @@ export async function scanFilesystemLibrary(shelfName?: string): Promise<Filesys
 
 	const items: FilesystemLibraryItem[] = [];
 	for (const shelf of shelves) {
-		const bookPaths = await collectShelfBookPaths(shelf.path);
+		const rawPaths = await collectShelfBookPaths(shelf.path);
+		const bookPaths = deduplicateBookPaths(rawPaths);
 		for (const fullPath of bookPaths) {
 			try {
 				items.push(await readLibraryItemFromFile(shelf.name, fullPath));

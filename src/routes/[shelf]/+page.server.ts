@@ -36,13 +36,14 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	const books = await Promise.all(
 		items.map(async (item) => {
-			const ext = item.extension.toLowerCase();
+			// item.extension has no dot (e.g. "epub"), so we reconstruct a dotted ext.
+			const dotExt = `.${item.extension.toLowerCase()}`;
 			let downloadFilename = path.basename(item.path);
-			if (ext === '.epub') {
+			if (dotExt === '.epub') {
 				const hash = await epubCoverHash(item.path);
 				if (hash) {
-					const stem = path.basename(item.path, item.extension);
-					downloadFilename = `${stem}-${hash}${item.extension}`;
+					const stem = path.basename(item.path, dotExt);
+					downloadFilename = `${stem}-${hash}${dotExt}`;
 				}
 			}
 			return {

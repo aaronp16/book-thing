@@ -267,7 +267,8 @@ async function embedCoverInEpub(bookPath: string, imageBytes: Buffer): Promise<b
 		const updated = zipSync(zip, { level: 0 });
 		await fs.writeFile(bookPath, Buffer.from(updated));
 		return true;
-	} catch {
+	} catch (err) {
+		console.error(`[embedCoverInEpub] Failed for ${bookPath}:`, err);
 		return false;
 	}
 }

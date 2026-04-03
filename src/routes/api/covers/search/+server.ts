@@ -16,16 +16,25 @@ import {
 } from '$lib/server/book-covers.js';
 import { decodeLibraryItemId, resolveLibraryItemAbsolutePath } from '$lib/server/fs-library.js';
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	fallback: T,
+	label: string
+): Promise<T> {
 	return new Promise((resolve) => {
-		const timer = setTimeout(() => resolve(fallback), timeoutMs);
+		const timer = setTimeout(() => {
+			console.warn(`[api/covers/search] ${label} timed out after ${timeoutMs}ms`);
+			resolve(fallback);
+		}, timeoutMs);
 		promise
 			.then((value) => {
 				clearTimeout(timer);
 				resolve(value);
 			})
-			.catch(() => {
+			.catch((err) => {
 				clearTimeout(timer);
+				console.warn(`[api/covers/search] ${label} failed:`, err);
 				resolve(fallback);
 			});
 	});
@@ -74,9 +83,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		// Run all searches in parallel, but don't let one slow provider block the whole modal.
 		const [currentCoverDataUrl, googleUrls, olUrls] = await Promise.all([
-			withTimeout(currentCoverPromise, 1500, null),
-			withTimeout(searchGoogleBooksCovers(title, author), 2000, [] as string[]),
-			withTimeout(searchOpenLibraryCovers(title, author), 1500, [] as string[])
+			withTimeout(currentCoverPromise, 5000, null, 'current cover'),
+			withTimeout(searchGoogleBooksCovers(title, author), 5000, [] as string[], 'Google Books'),
+			withTimeout(searchOpenLibraryCovers(title, author), 5000, [] as string[], 'Open Library')
 		]);
 
 		const seen = new Set<string>();

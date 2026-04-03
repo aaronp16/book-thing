@@ -99,14 +99,14 @@ export function createKoboBookEntitlement(book: KoboLibraryBook): KoboBookEntitl
 		Accessibility: 'Full',
 		ActivePeriod: { From: toKoboTimestamp(new Date()) },
 		Created: toKoboTimestamp(book.modifiedAt),
-		CrossRevisionId: book.id,
-		Id: book.id,
+		CrossRevisionId: book.koboId,
+		Id: book.koboId,
 		IsHiddenFromArchive: false,
 		IsLocked: false,
 		IsRemoved: false,
 		LastModified: toKoboTimestamp(book.modifiedAt),
 		OriginCategory: 'Imported',
-		RevisionId: book.id,
+		RevisionId: book.koboId,
 		Status: 'Active'
 	};
 }
@@ -115,20 +115,20 @@ export async function createKoboBookMetadata(
 	book: KoboLibraryBook,
 	shelf: KoboShelf,
 	downloadUrl: string,
-	coverImageId: string
+	koboId: string
 ): Promise<KoboBookMetadata> {
 	const metadata = await readBookMetadata(book.path);
 	const hasAuthor = metadata.author && metadata.author !== 'Unknown';
 
 	const result: KoboBookMetadata = {
 		Categories: ['00000000-0000-0000-0000-000000000001'],
-		CoverImageId: coverImageId,
-		CrossRevisionId: book.id,
+		CoverImageId: koboId,
+		CrossRevisionId: koboId,
 		CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
 		CurrentLoveDisplayPrice: { TotalAmount: 0 },
 		Description: null,
 		DownloadUrls: [createKoboDownloadDescriptor(book, downloadUrl)],
-		EntitlementId: book.id,
+		EntitlementId: koboId,
 		ExternalIds: [],
 		Genre: '00000000-0000-0000-0000-000000000001',
 		IsEligibleForKoboLove: false,
@@ -139,9 +139,9 @@ export async function createKoboBookMetadata(
 		PhoneticPronunciations: {},
 		PublicationDate: toKoboTimestamp(book.modifiedAt),
 		Publisher: { Name: null, Imprint: '' },
-		RevisionId: book.id,
+		RevisionId: koboId,
 		Title: metadata.title,
-		WorkId: book.id
+		WorkId: koboId
 	};
 
 	if (hasAuthor) {

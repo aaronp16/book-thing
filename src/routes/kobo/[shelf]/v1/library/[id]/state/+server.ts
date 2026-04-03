@@ -31,11 +31,11 @@ function cleanProgress(value: number | null): number | null {
 }
 
 function createReadingStateResponse(
-	bookId: string,
+	bookKoboId: string,
 	state: Awaited<ReturnType<typeof getKoboReadingState>>
 ) {
 	return {
-		EntitlementId: bookId,
+		EntitlementId: bookKoboId,
 		Created: toKoboTimestamp(state?.updatedAt),
 		LastModified: toKoboTimestamp(state?.updatedAt),
 		PriorityTimestamp: toKoboTimestamp(state?.updatedAt),
@@ -92,7 +92,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			bookId: book.id,
 			status: state?.status ?? 'ReadyToRead'
 		});
-		return json([createReadingStateResponse(book.id, state)], {
+		return json([createReadingStateResponse(book.koboId, state)], {
 			headers: {
 				'Content-Type': 'application/json; charset=utf-8'
 			}
@@ -182,7 +182,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 			RequestResult: 'Success',
 			UpdateResults: [
 				{
-					EntitlementId: book.id,
+					EntitlementId: book.koboId,
 					CurrentBookmarkResult: { Result: 'Success' },
 					StatisticsResult: { Result: 'Success' },
 					StatusInfoResult: { Result: 'Success' },

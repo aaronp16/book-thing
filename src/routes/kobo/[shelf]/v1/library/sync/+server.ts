@@ -12,10 +12,42 @@ import {
 import {
 	buildKoboRouteUrls,
 	createKoboShelfNotFoundJsonResponse,
-	isKoboShelfError
+	isKoboShelfError,
+	toKoboTimestamp
 } from '$lib/server/kobo-routes.js';
+import { getKoboReadingState } from '$lib/server/kobo-state.js';
 
 const SYNC_ITEM_LIMIT = 100;
+
+function createReadingStateForSync(
+	koboId: string,
+	modifiedAt: string,
+	state: Awaited<ReturnType<typeof getKoboReadingState>>
+) {
+	const timestamp = state?.updatedAt ?? modifiedAt;
+	return {
+		EntitlementId: koboId,
+		Created: toKoboTimestamp(modifiedAt),
+		LastModified: toKoboTimestamp(timestamp),
+		PriorityTimestamp: toKoboTimestamp(timestamp),
+		StatusInfo: {
+			LastModified: toKoboTimestamp(timestamp),
+			Status:
+				state?.status === 'Finished'
+					? 'Finished'
+					: state?.status === 'Reading'
+						? 'Reading'
+						: 'ReadyToRead',
+			TimesStartedReading: state?.timesStartedReading ?? 0
+		},
+		Statistics: {
+			LastModified: toKoboTimestamp(timestamp)
+		},
+		CurrentBookmark: {
+			LastModified: toKoboTimestamp(timestamp)
+		}
+	};
+}
 
 export const GET: RequestHandler = async ({ params, url, request }) => {
 	try {
@@ -56,13 +88,20 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		let newestBookCreatedTimestamp = syncToken.booksLastCreated;
 
 		for (const book of changedBooks) {
-			const { downloadUrl } = buildKoboRouteUrls(url.origin, shelf, book);
-			const coverImageId = book.id;
-			const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, coverImageId);
-			const entitlement = {
+			const { downloadUrl, koboId } = buildKoboRouteUrls(url.origin, shelf, book);
+			const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, koboId);
+			const entitlement: Record<string, unknown> = {
 				BookEntitlement: createKoboBookEntitlement(book),
 				BookMetadata: metadata
 			};
+
+			// Include ReadingState in entitlement (matches calibre-web behavior)
+			const readingState = await getKoboReadingState(book.id);
+			entitlement.ReadingState = createReadingStateForSync(
+				book.koboId,
+				book.modifiedAt,
+				readingState
+			);
 
 			const bookModifiedAt = new Date(book.modifiedAt);
 
@@ -93,9 +132,11 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 
 		const responseHeaders: Record<string, string> = {
 			'Content-Type': 'application/json; charset=utf-8',
-			'x-kobo-sync': hasMore ? 'continue' : 'done',
 			[SYNC_TOKEN_HEADER]: buildSyncTokenHeader(updatedToken)
 		};
+		if (hasMore) {
+			responseHeaders['x-kobo-sync'] = 'continue';
+		}
 
 		logKoboRequest('library/sync response', {
 			shelf: shelf.name,
@@ -108,7 +149,9 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			updatedToken: {
 				booksLastModified: updatedToken.booksLastModified.toISOString(),
 				booksLastCreated: updatedToken.booksLastCreated.toISOString()
-			}
+			},
+			// Log first entitlement for debugging Kobo protocol issues
+			sampleEntitlement: syncResults.length > 0 ? syncResults[0] : null
 		});
 
 		return json(syncResults, { headers: responseHeaders });

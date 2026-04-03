@@ -11,8 +11,8 @@ export function buildKoboRouteUrls(baseUrl: string, shelf: KoboShelf, book: Kobo
 	const shelfBase = `${baseUrl}/kobo/${shelf.encodedName}`;
 	return {
 		downloadUrl: `${shelfBase}/download/${book.id}/${book.koboFormat.toLowerCase()}`,
-		/** Cover ID for Kobo's path-based image_url_template format */
-		coverImageId: book.id
+		/** Kobo UUID for the device protocol (used as CoverImageId, EntitlementId, etc.) */
+		koboId: book.koboId
 	};
 }
 

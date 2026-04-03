@@ -20,8 +20,8 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			bookId: book.id,
 			path: url.pathname
 		});
-		const { downloadUrl, coverImageId } = buildKoboRouteUrls(url.origin, shelf, book);
-		const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, coverImageId);
+		const { downloadUrl, koboId } = buildKoboRouteUrls(url.origin, shelf, book);
+		const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, koboId);
 
 		logKoboRequest('library/metadata response', {
 			shelf: shelf.name,

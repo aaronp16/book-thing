@@ -6,15 +6,30 @@ const KOBO_LOG_DIR = path.join(env.BOOKS_DIR, '.kobo-state');
 const KOBO_LOG_FILE = path.join(KOBO_LOG_DIR, 'debug.log');
 const MAX_LOG_BYTES = 256 * 1024;
 
-function formatLine(level: 'info' | 'error', message: string, payload?: unknown): string {
+function formatLine(level: 'info' | 'warn' | 'error', message: string, payload?: unknown): string {
 	const timestamp = new Date().toISOString();
 	const suffix = payload === undefined ? '' : ` ${safeStringify(payload)}`;
 	return `${timestamp} [${level}] [kobo] ${message}${suffix}\n`;
 }
 
+function serializeError(error: unknown): unknown {
+	if (error instanceof Error) {
+		return {
+			name: error.name,
+			message: error.message,
+			stack: error.stack?.split('\n').slice(0, 5).join('\n'),
+			...(error.cause ? { cause: serializeError(error.cause) } : {})
+		};
+	}
+	return error;
+}
+
 function safeStringify(value: unknown): string {
 	try {
-		return JSON.stringify(value);
+		return JSON.stringify(value, (_key, val) => {
+			if (val instanceof Error) return serializeError(val);
+			return val;
+		});
 	} catch {
 		return '[unserializable]';
 	}
@@ -49,8 +64,16 @@ export function logKoboRequest(message: string, details?: Record<string, unknown
 	void appendKoboLogLine(line);
 }
 
+export function logKoboWarn(message: string, details?: Record<string, unknown>) {
+	const line = formatLine('warn', message, details);
+	console.warn(line.trimEnd());
+	void appendKoboLogLine(line);
+}
+
 export function logKoboError(message: string, error: unknown, details?: Record<string, unknown>) {
-	const payload = details ? { details, error } : { error };
+	const payload = details
+		? { details, error: serializeError(error) }
+		: { error: serializeError(error) };
 	const line = formatLine('error', message, payload);
 	console.error(line.trimEnd());
 	void appendKoboLogLine(line);

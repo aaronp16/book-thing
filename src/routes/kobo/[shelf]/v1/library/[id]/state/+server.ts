@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveKoboBookOrThrow } from '$lib/server/kobo-library.js';
-import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 import { getKoboReadingState, upsertKoboReadingState } from '$lib/server/kobo-state.js';
 import {
 	createKoboBookNotFoundJsonResponse,
@@ -87,6 +87,11 @@ export const GET: RequestHandler = async ({ params }) => {
 		const book = await resolveKoboBookOrThrow(params.shelf, params.id);
 		logKoboRequest('library/state GET', { shelf: params.shelf, bookId: book.id });
 		const state = await getKoboReadingState(book.id);
+		logKoboRequest('library/state GET response', {
+			shelf: params.shelf,
+			bookId: book.id,
+			status: state?.status ?? 'ReadyToRead'
+		});
 		return json([createReadingStateResponse(book.id, state)], {
 			headers: {
 				'Content-Type': 'application/json; charset=utf-8'
@@ -94,9 +99,11 @@ export const GET: RequestHandler = async ({ params }) => {
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
+			logKoboWarn('library/state GET shelf not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboShelfNotFoundJsonResponse();
 		}
 		if (isKoboBookError(error)) {
+			logKoboWarn('library/state GET book not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboBookNotFoundJsonResponse();
 		}
 
@@ -112,6 +119,11 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		logKoboRequest('library/state PUT', { shelf: params.shelf, bookId: book.id, payload });
 		const requestReadingState = payload?.ReadingStates?.[0];
 		if (!requestReadingState) {
+			logKoboWarn('library/state PUT malformed request', {
+				shelf: params.shelf,
+				bookId: book.id,
+				payloadKeys: payload ? Object.keys(payload) : []
+			});
 			return json({ error: 'Malformed request: missing ReadingStates[0]' }, { status: 400 });
 		}
 
@@ -159,6 +171,13 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 				: (currentState?.statistics ?? null)
 		});
 
+		logKoboRequest('library/state PUT response', {
+			shelf: params.shelf,
+			bookId: book.id,
+			status: nextState.status,
+			progressPercent: nextState.progressPercent
+		});
+
 		return json({
 			RequestResult: 'Success',
 			UpdateResults: [
@@ -174,9 +193,11 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
+			logKoboWarn('library/state PUT shelf not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboShelfNotFoundJsonResponse();
 		}
 		if (isKoboBookError(error)) {
+			logKoboWarn('library/state PUT book not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboBookNotFoundJsonResponse();
 		}
 

@@ -5,10 +5,6 @@ import { env } from './env.js';
 const KOBO_STATE_DIR = path.join(env.BOOKS_DIR, '.kobo-state');
 const KOBO_STATE_FILE = path.join(KOBO_STATE_DIR, 'reading-state.json');
 
-export function getKoboStateFilePath(): string {
-	return KOBO_STATE_FILE;
-}
-
 export interface KoboReadingStateRecord {
 	id: string;
 	status: string | null;
@@ -28,23 +24,12 @@ export interface KoboReadingStateRecord {
 	updatedAt: string;
 }
 
-export interface KoboSyncCursor {
-	shelf: string;
-	booksLastModified: string | null;
-	readingStateLastModified: string | null;
-	tagsLastModified: string | null;
-	archiveLastModified: string | null;
-	booksLastCreated: string | null;
-}
-
 interface KoboStateStore {
 	readingStates: Record<string, KoboReadingStateRecord>;
-	syncCursors: Record<string, KoboSyncCursor>;
 }
 
 const EMPTY_STORE: KoboStateStore = {
-	readingStates: {},
-	syncCursors: {}
+	readingStates: {}
 };
 
 function sanitizeReadingStateRecord(record: KoboReadingStateRecord): KoboReadingStateRecord {
@@ -72,17 +57,6 @@ function sanitizeReadingStateRecord(record: KoboReadingStateRecord): KoboReading
 	};
 }
 
-function sanitizeSyncCursor(cursor: KoboSyncCursor): KoboSyncCursor {
-	return {
-		shelf: cursor.shelf,
-		booksLastModified: cursor.booksLastModified ?? null,
-		readingStateLastModified: cursor.readingStateLastModified ?? null,
-		tagsLastModified: cursor.tagsLastModified ?? null,
-		archiveLastModified: cursor.archiveLastModified ?? null,
-		booksLastCreated: cursor.booksLastCreated ?? null
-	};
-}
-
 function sanitizeStore(parsed: Partial<KoboStateStore>): KoboStateStore {
 	const readingStates: Record<string, KoboReadingStateRecord> = {};
 	for (const [id, record] of Object.entries(parsed.readingStates ?? {})) {
@@ -90,13 +64,7 @@ function sanitizeStore(parsed: Partial<KoboStateStore>): KoboStateStore {
 		readingStates[id] = sanitizeReadingStateRecord(record as KoboReadingStateRecord);
 	}
 
-	const syncCursors: Record<string, KoboSyncCursor> = {};
-	for (const [shelf, cursor] of Object.entries(parsed.syncCursors ?? {})) {
-		if (!cursor) continue;
-		syncCursors[shelf] = sanitizeSyncCursor(cursor as KoboSyncCursor);
-	}
-
-	return { readingStates, syncCursors };
+	return { readingStates };
 }
 
 async function ensureStateStore(): Promise<void> {
@@ -129,11 +97,6 @@ export async function getKoboReadingState(id: string): Promise<KoboReadingStateR
 	return store.readingStates[id] ?? null;
 }
 
-export async function listKoboReadingStates(): Promise<KoboReadingStateRecord[]> {
-	const store = await readStore();
-	return Object.values(store.readingStates).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
 export async function upsertKoboReadingState(
 	id: string,
 	patch: Partial<Omit<KoboReadingStateRecord, 'id' | 'updatedAt'>>
@@ -156,48 +119,4 @@ export async function upsertKoboReadingState(
 	store.readingStates[id] = sanitizeReadingStateRecord(next);
 	await writeStore(store);
 	return store.readingStates[id];
-}
-
-export async function getKoboSyncCursor(shelf: string): Promise<KoboSyncCursor> {
-	const store = await readStore();
-	return (
-		store.syncCursors[shelf] ?? {
-			shelf,
-			booksLastModified: null,
-			readingStateLastModified: null,
-			tagsLastModified: null,
-			archiveLastModified: null,
-			booksLastCreated: null
-		}
-	);
-}
-
-export async function listKoboSyncCursors(): Promise<KoboSyncCursor[]> {
-	const store = await readStore();
-	return Object.values(store.syncCursors).sort((a, b) => a.shelf.localeCompare(b.shelf));
-}
-
-export async function updateKoboSyncCursor(
-	shelf: string,
-	patch: Partial<Omit<KoboSyncCursor, 'shelf'>>
-): Promise<KoboSyncCursor> {
-	const store = await readStore();
-	const existing =
-		store.syncCursors[shelf] ??
-		({
-			shelf,
-			booksLastModified: null,
-			readingStateLastModified: null,
-			tagsLastModified: null,
-			archiveLastModified: null,
-			booksLastCreated: null
-		} as KoboSyncCursor);
-	const next: KoboSyncCursor = {
-		...existing,
-		...patch,
-		shelf
-	};
-	store.syncCursors[shelf] = sanitizeSyncCursor(next);
-	await writeStore(store);
-	return store.syncCursors[shelf];
 }

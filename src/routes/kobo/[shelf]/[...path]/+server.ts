@@ -1,7 +1,8 @@
 import type { RequestHandler } from './$types';
 import { assertKoboShelfExists } from '$lib/server/kobo-library.js';
-import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 import { filterKoboProxyResponseHeaders, proxyKoboStoreRequest } from '$lib/server/kobo-proxy.js';
+import { isKoboShelfError } from '$lib/server/kobo-routes.js';
 
 function buildProxyPath(pathValue: string | undefined): string {
 	const joined = pathValue ?? '';
@@ -40,12 +41,25 @@ async function handleProxyRequest(args: {
 			body
 		});
 
+		logKoboRequest('proxy response', {
+			shelf: args.params.shelf,
+			method: args.method,
+			path: buildProxyPath(args.params.path),
+			status: proxied.status,
+			bodyLength: proxied.body.length
+		});
+
 		return new Response(new Uint8Array(proxied.body), {
 			status: proxied.status,
 			headers: filterKoboProxyResponseHeaders(proxied.headers)
 		});
 	} catch (error) {
-		if (error instanceof Error && error.message.startsWith('Kobo shelf not found')) {
+		if (isKoboShelfError(error)) {
+			logKoboWarn('proxy shelf not found', {
+				shelf: args.params.shelf,
+				method: args.method,
+				path: buildProxyPath(args.params.path)
+			});
 			return new Response('Shelf not found', { status: 404 });
 		}
 

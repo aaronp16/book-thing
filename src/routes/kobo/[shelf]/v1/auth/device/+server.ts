@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { assertKoboShelfExists } from '$lib/server/kobo-library.js';
 import { createKoboShelfNotFoundJsonResponse, isKoboShelfError } from '$lib/server/kobo-routes.js';
-import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 
 function createAuthPayload(userKey: string) {
 	return {
@@ -28,6 +28,10 @@ async function handleAuthRequest(args: {
 				const body = await args.request.json();
 				userKey = typeof body?.UserKey === 'string' ? body.UserKey : '';
 			} catch {
+				logKoboWarn('auth/device body parse failed', {
+					shelf: args.shelf,
+					method: args.method
+				});
 				userKey = '';
 			}
 		}
@@ -38,6 +42,11 @@ async function handleAuthRequest(args: {
 			userKey
 		});
 
+		logKoboRequest('auth/device response', {
+			shelf: shelf.name,
+			method: args.method
+		});
+
 		return json(createAuthPayload(userKey), {
 			headers: {
 				'Content-Type': 'application/json; charset=utf-8',
@@ -46,6 +55,7 @@ async function handleAuthRequest(args: {
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
+			logKoboWarn('auth/device shelf not found', { shelf: args.shelf, method: args.method });
 			return createKoboShelfNotFoundJsonResponse();
 		}
 

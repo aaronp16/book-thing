@@ -6,7 +6,7 @@ import {
 	resolveKoboBookAbsolutePath,
 	resolveKoboBookOrThrow
 } from '$lib/server/kobo-library.js';
-import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 import {
 	createKoboBookNotFoundTextResponse,
 	createKoboShelfNotFoundTextResponse,
@@ -35,12 +35,26 @@ export const GET: RequestHandler = async ({ params }) => {
 		const requestedFormat = params.format.toLowerCase();
 		const bookFormat = getKoboDownloadFormat(book).toLowerCase();
 		if (requestedFormat !== bookFormat) {
+			logKoboWarn('download format mismatch', {
+				shelf: params.shelf,
+				bookId: book.id,
+				requestedFormat,
+				availableFormat: bookFormat
+			});
 			return new Response('Format not available for this book', { status: 404 });
 		}
 
 		const absolutePath = resolveKoboBookAbsolutePath(book);
 		const fileData = await fs.readFile(absolutePath);
 		const filename = path.basename(absolutePath);
+
+		logKoboRequest('download response', {
+			shelf: params.shelf,
+			bookId: book.id,
+			format: params.format,
+			filename,
+			sizeBytes: fileData.byteLength
+		});
 
 		return new Response(new Uint8Array(fileData), {
 			headers: {
@@ -51,9 +65,11 @@ export const GET: RequestHandler = async ({ params }) => {
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
+			logKoboWarn('download shelf not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboShelfNotFoundTextResponse();
 		}
 		if (isKoboBookError(error)) {
+			logKoboWarn('download book not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboBookNotFoundTextResponse();
 		}
 

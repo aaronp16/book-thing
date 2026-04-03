@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertKoboShelfExists, resolveKoboBookOrThrow } from '$lib/server/kobo-library.js';
-import { logKoboError, logKoboRequest } from '$lib/server/kobo-logging.js';
+import { logKoboError, logKoboRequest, logKoboWarn } from '$lib/server/kobo-logging.js';
 import { createKoboBookMetadata } from '$lib/server/kobo-metadata.js';
 import {
 	buildKoboRouteUrls,
@@ -20,8 +20,14 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			bookId: book.id,
 			path: url.pathname
 		});
-		const { downloadUrl, coverUrl } = buildKoboRouteUrls(url.origin, shelf, book);
-		const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, coverUrl);
+		const { downloadUrl, coverImageId } = buildKoboRouteUrls(url.origin, shelf, book);
+		const metadata = await createKoboBookMetadata(book, shelf, downloadUrl, coverImageId);
+
+		logKoboRequest('library/metadata response', {
+			shelf: shelf.name,
+			bookId: book.id,
+			title: book.title
+		});
 
 		return json([metadata], {
 			headers: {
@@ -30,9 +36,11 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		});
 	} catch (error) {
 		if (isKoboShelfError(error)) {
+			logKoboWarn('library/metadata shelf not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboShelfNotFoundJsonResponse();
 		}
 		if (isKoboBookError(error)) {
+			logKoboWarn('library/metadata book not found', { shelf: params.shelf, bookId: params.id });
 			return createKoboBookNotFoundJsonResponse();
 		}
 

@@ -9,21 +9,29 @@ export interface KoboDownloadDescriptor {
 }
 
 export interface KoboBookMetadata {
+	Categories: string[];
+	CoverImageId: string;
+	CrossRevisionId: string;
+	CurrentDisplayPrice: { CurrencyCode: string; TotalAmount: number };
+	CurrentLoveDisplayPrice: { TotalAmount: number };
+	Description: string | null;
+	DownloadUrls: KoboDownloadDescriptor[];
+	EntitlementId: string;
+	ExternalIds: string[];
+	Genre: string;
+	IsEligibleForKoboLove: boolean;
+	IsInternetArchive: boolean;
+	IsPreOrder: boolean;
+	IsSocialEnabled: boolean;
+	Language: string;
+	PhoneticPronunciations: Record<string, never>;
+	PublicationDate: string;
+	Publisher: { Name: string | null; Imprint: string };
 	RevisionId: string;
 	Title: string;
-	Language: string;
-	Contributors: string[] | null;
-	Publisher: { Name: string | null; Imprint: string };
-	PublicationDate: string;
-	DownloadUrls: KoboDownloadDescriptor[];
-	CoverImageId: string;
-	EntitlementId: string;
 	WorkId: string;
-	Description: string | null;
-	Categories: string[];
-	MimeType: string;
-	Format: string;
-	ShelfName: string;
+	Contributors?: string[];
+	ContributorRoles?: Array<{ Name: string }>;
 	Series?: {
 		Name: string;
 		Number: number;
@@ -33,18 +41,18 @@ export interface KoboBookMetadata {
 }
 
 export interface KoboBookEntitlement {
-	Id: string;
-	RevisionId: string;
-	Created: string;
-	LastModified: string;
-	OriginCategory: 'Imported';
-	Status: 'Active';
-	IsRemoved: boolean;
-	IsLocked: false;
-	IsHiddenFromArchive: false;
 	Accessibility: 'Full';
 	ActivePeriod: { From: string };
+	Created: string;
 	CrossRevisionId: string;
+	Id: string;
+	IsHiddenFromArchive: false;
+	IsLocked: false;
+	IsRemoved: boolean;
+	LastModified: string;
+	OriginCategory: 'Imported';
+	RevisionId: string;
+	Status: 'Active';
 }
 
 function toKoboTimestamp(value: string | Date): string {
@@ -62,12 +70,24 @@ function getMimeType(extension: string): string {
 	return 'application/octet-stream';
 }
 
+/**
+ * Map file extension to the Kobo format string expected by the device.
+ * Kobo devices recognize: KEPUB, EPUB, EPUB3, EPUB3FL, PDF
+ */
+function toKoboDownloadFormat(extension: string): string {
+	const ext = extension.toLowerCase();
+	if (ext === 'kepub' || ext === 'kepub.epub') return 'KEPUB';
+	if (ext === 'epub') return 'EPUB';
+	if (ext === 'pdf') return 'PDF';
+	return ext.toUpperCase();
+}
+
 export function createKoboDownloadDescriptor(
 	book: KoboLibraryBook,
 	downloadUrl: string
 ): KoboDownloadDescriptor {
 	return {
-		Format: book.koboFormat,
+		Format: toKoboDownloadFormat(book.extension),
 		Url: downloadUrl,
 		Platform: 'Generic',
 		Size: book.size
@@ -76,18 +96,18 @@ export function createKoboDownloadDescriptor(
 
 export function createKoboBookEntitlement(book: KoboLibraryBook): KoboBookEntitlement {
 	return {
-		Id: book.id,
-		RevisionId: book.id,
-		Created: toKoboTimestamp(book.modifiedAt),
-		LastModified: toKoboTimestamp(book.modifiedAt),
-		OriginCategory: 'Imported',
-		Status: 'Active',
-		IsRemoved: false,
-		IsLocked: false,
-		IsHiddenFromArchive: false,
 		Accessibility: 'Full',
 		ActivePeriod: { From: toKoboTimestamp(new Date()) },
-		CrossRevisionId: book.id
+		Created: toKoboTimestamp(book.modifiedAt),
+		CrossRevisionId: book.id,
+		Id: book.id,
+		IsHiddenFromArchive: false,
+		IsLocked: false,
+		IsRemoved: false,
+		LastModified: toKoboTimestamp(book.modifiedAt),
+		OriginCategory: 'Imported',
+		RevisionId: book.id,
+		Status: 'Active'
 	};
 }
 
@@ -95,24 +115,39 @@ export async function createKoboBookMetadata(
 	book: KoboLibraryBook,
 	shelf: KoboShelf,
 	downloadUrl: string,
-	coverUrl: string
+	coverImageId: string
 ): Promise<KoboBookMetadata> {
 	const metadata = await readBookMetadata(book.path);
-	return {
+	const hasAuthor = metadata.author && metadata.author !== 'Unknown';
+
+	const result: KoboBookMetadata = {
+		Categories: ['00000000-0000-0000-0000-000000000001'],
+		CoverImageId: coverImageId,
+		CrossRevisionId: book.id,
+		CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
+		CurrentLoveDisplayPrice: { TotalAmount: 0 },
+		Description: null,
+		DownloadUrls: [createKoboDownloadDescriptor(book, downloadUrl)],
+		EntitlementId: book.id,
+		ExternalIds: [],
+		Genre: '00000000-0000-0000-0000-000000000001',
+		IsEligibleForKoboLove: false,
+		IsInternetArchive: false,
+		IsPreOrder: false,
+		IsSocialEnabled: true,
+		Language: 'en',
+		PhoneticPronunciations: {},
+		PublicationDate: toKoboTimestamp(book.modifiedAt),
+		Publisher: { Name: null, Imprint: '' },
 		RevisionId: book.id,
 		Title: metadata.title,
-		Language: 'en',
-		Contributors: metadata.author && metadata.author !== 'Unknown' ? [metadata.author] : null,
-		Publisher: { Name: null, Imprint: '' },
-		PublicationDate: toKoboTimestamp(book.modifiedAt),
-		DownloadUrls: [createKoboDownloadDescriptor(book, downloadUrl)],
-		CoverImageId: book.id,
-		EntitlementId: book.id,
-		WorkId: book.id,
-		Description: null,
-		Categories: [shelf.name],
-		MimeType: getMimeType(book.extension),
-		Format: book.koboFormat,
-		ShelfName: shelf.name
+		WorkId: book.id
 	};
+
+	if (hasAuthor) {
+		result.Contributors = [metadata.author!];
+		result.ContributorRoles = [{ Name: metadata.author! }];
+	}
+
+	return result;
 }

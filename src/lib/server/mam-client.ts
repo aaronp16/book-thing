@@ -5,6 +5,8 @@
  * MAM may rotate the mam_id cookie in responses, so we track the latest value.
  */
 
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { env } from './env.js';
 import type { MamEntry, BookResult, PersonInfo, SearchField } from '$lib/types.js';
 
@@ -58,8 +60,52 @@ const EBOOK_CATEGORIES = [
 	'120' // EB food/urban fantasy/YA/illusion/mixed/nature
 ];
 
+/**
+ * Persisted session file. MAM rotates mam_id via Set-Cookie and the old value
+ * stops working, so the latest one must survive restarts.
+ */
+const SESSION_FILE = path.join(env.BOOKS_DIR, '.mam_session.json');
+
+interface PersistedSession {
+	/** Latest mam_id seen from MAM */
+	mamId: string;
+	/** The env MAM_ID this session descends from; if env changes, env wins */
+	envMamId: string;
+	updatedAt: string;
+}
+
 /** Current mam_id (may be rotated by MAM) */
-let currentMamId: string = '';
+let currentMamId: string = loadPersistedMamId();
+
+/**
+ * Load the last rotated mam_id from disk, unless MAM_ID in env has been
+ * changed since (meaning the user pasted a fresh session).
+ */
+function loadPersistedMamId(): string {
+	try {
+		const session: PersistedSession = JSON.parse(readFileSync(SESSION_FILE, 'utf8'));
+		if (session.mamId && session.envMamId === env.MAM_ID) {
+			console.log(`[mam-client] Using persisted mam_id from ${session.updatedAt}`);
+			return session.mamId;
+		}
+	} catch {
+		// No session file yet
+	}
+	return '';
+}
+
+function persistMamId(mamId: string): void {
+	const session: PersistedSession = {
+		mamId,
+		envMamId: env.MAM_ID,
+		updatedAt: new Date().toISOString()
+	};
+	try {
+		writeFileSync(SESSION_FILE, JSON.stringify(session, null, '\t'), { mode: 0o600 });
+	} catch (err) {
+		console.error('[mam-client] Failed to persist rotated mam_id:', err);
+	}
+}
 
 /**
  * Get the current MAM ID, falling back to env if not yet set
@@ -84,19 +130,31 @@ function buildHeaders(referer?: string): HeadersInit {
  * Track cookie rotation from MAM responses
  */
 function trackCookieRotation(response: Response): void {
-	const setCookie = response.headers.get('set-cookie');
-	if (!setCookie) return;
+	for (const cookie of response.headers.getSetCookie()) {
+		const mamIdMatch = cookie.match(/^\s*mam_id=([^;]+)/);
+		if (!mamIdMatch) continue;
 
-	// set-cookie can contain multiple cookies separated by commas (for some headers)
-	// but typically each Set-Cookie is a separate header. We'll parse what we get.
-	const mamIdMatch = setCookie.match(/mam_id=([^;]+)/);
-	if (mamIdMatch) {
 		const newId = mamIdMatch[1];
-		if (newId !== getMamId()) {
+		if (newId && newId !== 'deleted' && newId !== getMamId()) {
 			console.log('[mam-client] Cookie rotated, updating mam_id');
 			currentMamId = newId;
+			persistMamId(newId);
 		}
 	}
+}
+
+/**
+ * Throw a clear error for a failed MAM response. 403 means the session was
+ * rejected (expired, invalidated, or used from a different IP/ASN than it's locked to).
+ */
+function throwMamError(response: Response, context: string): never {
+	if (response.status === 403) {
+		throw new Error(
+			`${context}: MAM rejected the session (403). Create a new session in MAM ` +
+				`Preferences → Security, set MAM_ID to it, and restart.`
+		);
+	}
+	throw new Error(`${context}: ${response.status} ${response.statusText}`);
 }
 
 interface MamSearchResponse {
@@ -174,11 +232,11 @@ export async function searchBooks(
 		headers: buildHeaders(BROWSE_URL)
 	});
 
-	if (!response.ok) {
-		throw new Error(`MAM API error: ${response.status} ${response.statusText}`);
-	}
-
 	trackCookieRotation(response);
+
+	if (!response.ok) {
+		throwMamError(response, 'MAM API error');
+	}
 
 	const data: MamApiResponse = await response.json();
 
@@ -217,13 +275,11 @@ export async function downloadTorrentFile(torrentId: number): Promise<Buffer> {
 		headers: buildHeaders(`https://www.myanonamouse.net/t/${torrentId}`)
 	});
 
-	if (!response.ok) {
-		throw new Error(
-			`Failed to download torrent ${torrentId}: ${response.status} ${response.statusText}`
-		);
-	}
-
 	trackCookieRotation(response);
+
+	if (!response.ok) {
+		throwMamError(response, `Failed to download torrent ${torrentId}`);
+	}
 
 	const arrayBuffer = await response.arrayBuffer();
 	return Buffer.from(arrayBuffer);

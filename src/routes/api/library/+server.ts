@@ -17,7 +17,6 @@ interface GroupedLibraryBook {
 	bookKey: string;
 	title: string;
 	author: string;
-	hasCover: boolean;
 	path: string;
 	addedAt: string;
 	lastModified: string;
@@ -59,7 +58,6 @@ export const GET: RequestHandler = async ({ url }) => {
 					bookKey: book.bookKey,
 					title: book.title,
 					author: book.author,
-					hasCover: book.hasCover,
 					path: book.relativePath,
 					addedAt: book.modifiedAt,
 					lastModified: book.modifiedAt,
@@ -80,7 +78,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			}
 			if (new Date(book.modifiedAt).getTime() > new Date(existing.lastModified).getTime()) {
 				existing.id = book.id;
-				existing.hasCover = book.hasCover;
 				existing.path = book.relativePath;
 				existing.addedAt = book.modifiedAt;
 				existing.lastModified = book.modifiedAt;

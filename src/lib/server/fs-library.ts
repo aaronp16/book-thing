@@ -1,8 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
-import { extractEmbeddedCoverBytes, findSidecarCover } from './book-covers.js';
-import { readBookMetadata } from './book-metadata.js';
 import { ensureShelfDirectory, getShelfPath, listShelfDirectories } from './fs-shelves.js';
 
 export const FILESYSTEM_EBOOK_EXTENSIONS = new Set([
@@ -36,7 +34,6 @@ export interface FilesystemLibraryItem {
 	modifiedAt: string;
 	title: string;
 	author: string;
-	hasCover: boolean;
 }
 
 interface CachedFilesystemLibraryItem {
@@ -45,6 +42,20 @@ interface CachedFilesystemLibraryItem {
 }
 
 const libraryItemCache = new Map<string, CachedFilesystemLibraryItem>();
+
+/**
+ * Derive title/author from a "Title - Author.ext" filename.
+ * Placeholder until proper metadata handling is rebuilt.
+ */
+export function parseBookFilename(filename: string): { title: string; author: string } {
+	const stem = path.basename(filename, path.extname(filename));
+	const cleaned = stem.replace(/\s*\([A-Za-z0-9]+\)\s*$/, '').trim();
+	const dashMatch = cleaned.match(/^(.+?)\s+-\s+(.+)$/);
+	if (dashMatch) {
+		return { title: dashMatch[1].trim(), author: dashMatch[2].trim() };
+	}
+	return { title: cleaned, author: 'Unknown' };
+}
 
 function isSupportedBookFile(filename: string): boolean {
 	return FILESYSTEM_EBOOK_EXTENSIONS.has(path.extname(filename).toLowerCase());
@@ -127,10 +138,7 @@ async function readLibraryItemFromFile(
 		return cached.item;
 	}
 
-	const metadata = await readBookMetadata(absolutePath);
-	const sidecarCover = await findSidecarCover(absolutePath);
-	const embeddedCover = sidecarCover ? null : await extractEmbeddedCoverBytes(absolutePath);
-	const hasCover = sidecarCover !== null || embeddedCover !== null;
+	const { title, author } = parseBookFilename(absolutePath);
 	const item = {
 		id: encodeLibraryItemId(relativePath),
 		bookKey: encodeBookKey(relativePath),
@@ -141,9 +149,8 @@ async function readLibraryItemFromFile(
 		extension: path.extname(absolutePath).toLowerCase().slice(1),
 		size: stat.size,
 		modifiedAt: stat.mtime.toISOString(),
-		title: metadata.title,
-		author: metadata.author,
-		hasCover
+		title,
+		author
 	};
 
 	libraryItemCache.set(relativePath, { cacheKey, item });
@@ -269,17 +276,6 @@ export async function copyFilesystemLibraryItemToShelf(
 		await fs.access(targetPath);
 	} catch {
 		await fs.copyFile(sourcePath, targetPath);
-	}
-
-	const sourceSidecar = await findSidecarCover(sourcePath);
-	if (sourceSidecar) {
-		const stem = path.basename(targetPath, path.extname(targetPath));
-		const targetCoverPath = path.join(path.dirname(targetPath), `${stem}.cover.jpg`);
-		try {
-			await fs.access(targetCoverPath);
-		} catch {
-			await fs.copyFile(sourceSidecar, targetCoverPath);
-		}
 	}
 
 	libraryItemCache.delete(targetRelativePath);

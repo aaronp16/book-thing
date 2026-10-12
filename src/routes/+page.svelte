@@ -173,11 +173,7 @@
 		openShelfSelector(book);
 	}
 
-	async function handleShelfSelectorConfirm(
-		shelfIds: string[],
-		coverUrl: string | null,
-		coverData: string | null
-	) {
+	async function handleShelfSelectorConfirm(shelfIds: string[]) {
 		if (!currentBook) return;
 
 		// Library book edit path
@@ -189,7 +185,7 @@
 				const res = await fetch(`/api/library/${bookId}`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ shelfNames: shelfIds, coverUrl, coverData })
+					body: JSON.stringify({ shelfNames: shelfIds })
 				});
 				if (!res.ok) {
 					const data = await res.json();
@@ -560,7 +556,6 @@
 <ShelfSelectorModal
 	isOpen={isShelfSelectorOpen}
 	book={currentBook}
-	bookId={currentLibraryBookId}
 	initialShelfIds={currentInitialShelfIds}
 	isEdit={currentLibraryBookId !== null}
 	onConfirm={handleShelfSelectorConfirm}

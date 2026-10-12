@@ -1,8 +1,7 @@
 /**
  * POST /api/library/[id]
  *
- * Update a filesystem-native library item: copy it to additional shelves
- * and/or save a cover.
+ * Update a filesystem-native library item: set which shelves it's on.
  *
  * DELETE /api/library/[id]
  *
@@ -16,11 +15,9 @@ import {
 	copyFilesystemLibraryItemToShelf,
 	decodeLibraryItemId,
 	deleteFilesystemLibraryItem,
-	getFilesystemLibraryItemsForBookKey,
-	resolveLibraryItemAbsolutePath
+	getFilesystemLibraryItemsForBookKey
 } from '$lib/server/fs-library.js';
 import { encodeBookKey } from '$lib/server/fs-library.js';
-import { saveCoverForBook, saveCoverFromUrlForBookWithFallback } from '$lib/server/book-covers.js';
 
 function parseShelfNames(value: unknown, fieldName: string): string[] {
 	if (!Array.isArray(value)) {
@@ -44,17 +41,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	try {
 		const body = await request.json();
 		const shelfNames = parseShelfNames(body.shelfNames ?? body.shelfIds ?? [], 'shelfNames');
-		const coverUrl = typeof body.coverUrl === 'string' ? body.coverUrl : null;
-		const coverData = typeof body.coverData === 'string' ? body.coverData : null;
-		const normalizedCoverUrl = coverUrl?.startsWith('/api/covers/proxy?url=')
-			? new URLSearchParams(coverUrl.slice('/api/covers/proxy?'.length)).get('url')
-			: coverUrl;
-		const isRemoteCoverUrl =
-			normalizedCoverUrl !== null &&
-			(normalizedCoverUrl.startsWith('http://') || normalizedCoverUrl.startsWith('https://'));
-
 		const sourceRelativePath = decodeLibraryItemId(encodedId);
-		const sourceAbsolutePath = resolveLibraryItemAbsolutePath(sourceRelativePath);
 		const bookKey = encodeBookKey(sourceRelativePath);
 		const existingCopies = await getFilesystemLibraryItemsForBookKey(bookKey);
 		const existingShelves = new Set(existingCopies.map((copy) => copy.shelf));
@@ -72,32 +59,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			}
 		}
 
-		let coverSaved = false;
-		let coverStorage: 'embedded' | 'sidecar' | null = null;
-		if (coverData) {
-			const imageBytes = Buffer.from(coverData, 'base64');
-			const copies = await getFilesystemLibraryItemsForBookKey(bookKey);
-			for (const copy of copies) {
-				const result = await saveCoverForBook(copy.path, imageBytes);
-				if (!coverStorage && result) {
-					coverStorage = result;
-				}
-			}
-			coverSaved = coverStorage !== null;
-		} else if (isRemoteCoverUrl && normalizedCoverUrl) {
-			const copies = await getFilesystemLibraryItemsForBookKey(bookKey);
-			for (const copy of copies) {
-				const result = await saveCoverFromUrlForBookWithFallback(copy.path, normalizedCoverUrl);
-				if (!coverStorage && result) {
-					coverStorage = result;
-				}
-			}
-			coverSaved = coverStorage !== null;
-		}
-
 		_invalidateLibraryResponseCache();
 
-		return json({ ok: true, coverSaved, coverStorage });
+		return json({ ok: true });
 	} catch (err) {
 		console.error(`[api/library/${encodedId}] Error:`, err);
 		return json(

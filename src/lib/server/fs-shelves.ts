@@ -51,24 +51,52 @@ export async function countShelfBooks(name: string): Promise<number> {
 	return countBooksRecursively(shelfPath);
 }
 
+// Priority order for deduplication (lower index = higher priority).
+// Must stay in sync with FORMAT_PRIORITY in fs-library.ts.
+const FORMAT_PRIORITY: string[] = ['.epub', '.mobi', '.azw', '.azw3', '.fb2', '.kepub', '.pdf'];
+
 async function countBooksRecursively(dirPath: string): Promise<number> {
+	// Collect all ebook paths first, then deduplicate by stem within each directory.
+	const allPaths = await collectEbookPathsForCount(dirPath);
+	// Group by (dir, lowercase stem), keep highest-priority extension.
+	const best = new Map<string, string>();
+	for (const p of allPaths) {
+		const dir = path.dirname(p);
+		const ext = path.extname(p).toLowerCase();
+		const stem = path.basename(p, ext).toLowerCase();
+		const key = `${dir}\0${stem}`;
+		const current = best.get(key);
+		if (!current) {
+			best.set(key, p);
+		} else {
+			const currentPriority = FORMAT_PRIORITY.indexOf(path.extname(current).toLowerCase());
+			const newPriority = FORMAT_PRIORITY.indexOf(ext);
+			const currentIdx = currentPriority === -1 ? FORMAT_PRIORITY.length : currentPriority;
+			const newIdx = newPriority === -1 ? FORMAT_PRIORITY.length : newPriority;
+			if (newIdx < currentIdx) best.set(key, p);
+		}
+	}
+	return best.size;
+}
+
+async function collectEbookPathsForCount(dirPath: string): Promise<string[]> {
 	try {
 		const entries = await fs.readdir(dirPath, { withFileTypes: true });
-		let count = 0;
+		const results: string[] = [];
 		for (const entry of entries) {
 			if (entry.name.startsWith('.')) continue;
 			const fullPath = path.join(dirPath, entry.name);
 			if (entry.isDirectory()) {
-				count += await countBooksRecursively(fullPath);
+				results.push(...(await collectEbookPathsForCount(fullPath)));
 				continue;
 			}
 			if (entry.isFile() && EBOOK_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-				count += 1;
+				results.push(fullPath);
 			}
 		}
-		return count;
+		return results;
 	} catch {
-		return 0;
+		return [];
 	}
 }
 

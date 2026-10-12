@@ -7,8 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
-import { readBookMetadata } from './book-metadata.js';
-import { encodeLibraryItemId } from './fs-library.js';
+import { encodeLibraryItemId, parseBookFilename } from './fs-library.js';
 import { ensureShelfDirectory } from './fs-shelves.js';
 
 /** Supported ebook file extensions */
@@ -259,8 +258,8 @@ export async function copyBookToLibrary(
 		let copied = 0;
 		let skipped = 0;
 		for (const srcFile of srcFiles) {
-			const metadata = await readBookMetadata(srcFile);
-			const authorDirName = sanitizePathSegment(metadata.author || 'Unknown');
+			const { author } = parseBookFilename(srcFile);
+			const authorDirName = sanitizePathSegment(author);
 			for (const shelfName of shelfNames) {
 				const safeShelfName = sanitizePathSegment(shelfName);
 				const shelfDir = await ensureShelfDirectory(safeShelfName);

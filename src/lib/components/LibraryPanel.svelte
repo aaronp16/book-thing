@@ -30,7 +30,6 @@
 		bookKey: string;
 		title: string;
 		author: string;
-		hasCover: boolean;
 		path: string;
 		addedAt: string;
 		lastModified: string;
@@ -180,7 +179,6 @@
 			if (book.id !== bookId) return book;
 			return {
 				...book,
-				hasCover: true,
 				lastModified: new Date().toISOString(),
 				shelfNames,
 				copyCount: shelfNames.length,
@@ -468,35 +466,24 @@
 											</svg>
 										</div>
 									{:else}
-										{#if book.hasCover}
-											<img
-												src="/api/library/cover/{book.id}?w=320&v={encodeURIComponent(
-													book.lastModified
-												)}"
-												alt={book.title}
-												class="block h-auto w-full transition-opacity group-hover:opacity-70"
-												loading="lazy"
-											/>
-										{:else}
-											<div
-												class="flex min-h-52 w-full flex-col items-center justify-center p-2 text-center"
+										<div
+											class="flex min-h-52 w-full flex-col items-center justify-center p-2 text-center"
+										>
+											<svg
+												class="mb-1 h-6 w-6 text-neutral-600"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
 											>
-												<svg
-													class="mb-1 h-6 w-6 text-neutral-600"
-													fill="none"
-													stroke="currentColor"
-													viewBox="0 0 24 24"
-												>
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="1.5"
-														d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-													/>
-												</svg>
-												<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
-											</div>
-										{/if}
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="1.5"
+													d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+												/>
+											</svg>
+											<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
+										</div>
 
 										<div
 											class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
@@ -513,7 +500,7 @@
 												</p>
 											{/if}
 											{#if onBookClick}
-												<p class="mt-0.5 text-[10px] text-blue-400">Edit cover / copy to shelf</p>
+												<p class="mt-0.5 text-[10px] text-blue-400">Copy to shelf</p>
 											{/if}
 											<p class="mt-0.5 text-[10px] text-emerald-300">Download local file</p>
 										</div>

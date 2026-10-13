@@ -114,3 +114,32 @@ export interface LibraryFile {
 	size: number;
 	modifiedAt: string;
 }
+
+/**
+ * Metadata embedded in a book file (EPUB/KEPUB OPF)
+ */
+export interface BookMetadata {
+	title?: string;
+	authors: string[];
+	series?: string;
+	seriesIndex?: number;
+	publisher?: string;
+	/** YYYY-MM-DD */
+	published?: string;
+	language?: string;
+	isbn?: string;
+	subjects: string[];
+	/** Out of 5 */
+	rating?: number;
+	/** Plain text */
+	description?: string;
+}
+
+/**
+ * A cover image found online that the user can pick
+ */
+export interface CoverCandidate {
+	url: string;
+	/** Where it came from, e.g. "This edition (ISBN)" or "Penguin, 2004" */
+	label: string;
+}

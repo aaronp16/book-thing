@@ -14,6 +14,7 @@ declare global {
 			MAM_ID?: string;
 			MAM_UID?: string;
 			BOOKS_DIR?: string;
+			MAM_SESSION_FILE?: string;
 		}
 	}
 }

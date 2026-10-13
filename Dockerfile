@@ -39,6 +39,8 @@ ENV QB_CATEGORY=books
 ENV QB_SAVE_PATH=
 ENV PORT=3000
 ENV HOST=0.0.0.0
+# Allow cover image uploads (adapter-node defaults to 512K)
+ENV BODY_SIZE_LIMIT=10M
 
 EXPOSE 3000
 

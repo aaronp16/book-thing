@@ -281,3 +281,30 @@ export async function copyFilesystemLibraryItemToShelf(
 	libraryItemCache.delete(targetRelativePath);
 	return encodeLibraryItemId(targetRelativePath);
 }
+
+/**
+ * Every EPUB/KEPUB file holding this book: its copy on each shelf, plus the
+ * .kepub/.kepub.epub siblings that sit next to each copy. Used to apply a
+ * change (like a new cover) to all versions at once.
+ */
+export async function getEpubFilesForLibraryItem(id: string): Promise<string[]> {
+	const copies = await getFilesystemLibraryItemsForBookKey(encodeBookKey(decodeLibraryItemId(id)));
+	const files = new Set<string>();
+
+	for (const copy of copies) {
+		const dir = path.dirname(copy.path);
+		const stem = path.basename(copy.path, path.extname(copy.path)).replace(/\.kepub$/i, '');
+		let entries: string[];
+		try {
+			entries = await fs.readdir(dir);
+		} catch {
+			continue;
+		}
+		for (const name of entries) {
+			if (!/\.(epub|kepub)$/i.test(name)) continue;
+			const nameStem = name.replace(/(\.kepub)?\.(epub|kepub)$/i, '');
+			if (nameStem.toLowerCase() === stem.toLowerCase()) files.add(path.join(dir, name));
+		}
+	}
+	return [...files];
+}

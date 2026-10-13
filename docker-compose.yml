@@ -14,9 +14,6 @@ services:
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}
       - QB_CATEGORY=${QB_CATEGORY:-books}
-      - CALIBRE_WEB_URL=${CALIBRE_WEB_URL:-http://calibre-web:8083}
-      - CALIBRE_WEB_USERNAME=${CALIBRE_WEB_USERNAME}
-      - CALIBRE_WEB_PASSWORD=${CALIBRE_WEB_PASSWORD}
     volumes:
       - /home/aaron/data/media/books:/books
       - /home/aaron/homelab/data/torrents/books:/torrents:ro

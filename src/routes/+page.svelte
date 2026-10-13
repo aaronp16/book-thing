@@ -6,6 +6,7 @@
 	import DownloadsModal from '$lib/components/DownloadsModal.svelte';
 	import DownloadsHeaderIndicator from '$lib/components/DownloadsHeaderIndicator.svelte';
 	import ShelfSelectorModal from '$lib/components/ShelfSelectorModal.svelte';
+	import VipBadge from '$lib/components/VipBadge.svelte';
 	import type { BookResult, SearchField, DownloadJob } from '$lib/types';
 	import { toasts } from '$lib/stores/toasts';
 	import { onMount } from 'svelte';
@@ -504,8 +505,9 @@
 		{#if isMobile && mobileTab === 'downloads'}
 			{#key mobileTab}
 				<div class="absolute inset-0 flex flex-col bg-neutral-900 {tabSlideClass}">
-					<div class="animate-fade-in px-4 py-6">
+					<div class="animate-fade-in flex items-center justify-between px-4 py-6">
 						<h1 class="text-2xl font-bold text-white sm:text-3xl">Downloads</h1>
+						<VipBadge />
 					</div>
 					<div class="flex-1 overflow-hidden px-4 pb-20">
 						<TorrentSidebar {fetchingJobs} onCountChange={(count) => (downloadingCount = count)} />
@@ -524,6 +526,7 @@
 		>
 			{#snippet titleRight()}
 				<div class="flex items-center gap-3">
+					<VipBadge />
 					<DownloadsHeaderIndicator
 						onClick={openDownloadsModal}
 						downloadingCount={totalDownloadingCount}
@@ -558,6 +561,8 @@
 	book={currentBook}
 	initialShelfIds={currentInitialShelfIds}
 	isEdit={currentLibraryBookId !== null}
+	libraryBookId={currentLibraryBookId}
+	onCoverChanged={() => libraryPanelRef?.refresh()}
 	onConfirm={handleShelfSelectorConfirm}
 	onCancel={closeShelfSelector}
 />

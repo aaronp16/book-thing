@@ -44,6 +44,46 @@
 	const LIBRARY_COLUMN_COUNT = 4;
 
 	let books = $state<LibraryBook[]>([]);
+	// Cover URLs that failed to load (no embedded cover, or unsupported format).
+	// Keyed by URL so a book that later gains a cover gets a fresh attempt.
+	let missingCovers = $state(new Set<string>());
+
+	/**
+	 * Changes whenever the file does. Replacing a cover keeps the file's mtime
+	 * (so "recently added" order is stable) but changes its size.
+	 */
+	function fileVersion(book: LibraryBook): string {
+		return `${book.lastModified}-${book.size ?? 0}`;
+	}
+
+	function coverUrl(book: LibraryBook): string {
+		return `/api/library/${book.id}/cover?v=${encodeURIComponent(fileVersion(book))}`;
+	}
+
+	function markCoverMissing(url: string) {
+		missingCovers = new Set(missingCovers).add(url);
+	}
+
+	/** Short FNV-1a hash, for putting a file version into download filenames */
+	function shortHash(input: string): string {
+		let hash = 0x811c9dc5;
+		for (let i = 0; i < input.length; i++) {
+			hash ^= input.charCodeAt(i);
+			hash = Math.imul(hash, 0x01000193);
+		}
+		return (hash >>> 0).toString(16).padStart(8, '0').slice(0, 6);
+	}
+
+	/**
+	 * "Title - Author [a1b2c3].epub". Kobo caches cover thumbnails per file, so
+	 * a new name after a cover change makes it pick up the new art.
+	 */
+	function downloadFilename(book: LibraryBook): string {
+		const name = (book.relativePath ?? book.path).split('/').pop() ?? 'book';
+		const dot = name.lastIndexOf('.');
+		const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+		return `${stem} [${shortHash(fileVersion(book))}]${ext}`;
+	}
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
@@ -211,7 +251,8 @@
 
 	function handleLocalDownload(book: LibraryBook, event: MouseEvent) {
 		event.stopPropagation();
-		window.open(`/api/library/${book.id}/download`, '_blank', 'noopener,noreferrer');
+		const url = `/api/library/${book.id}/download/${encodeURIComponent(downloadFilename(book))}`;
+		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 </script>
 
@@ -466,24 +507,34 @@
 											</svg>
 										</div>
 									{:else}
-										<div
-											class="flex min-h-52 w-full flex-col items-center justify-center p-2 text-center"
-										>
-											<svg
-												class="mb-1 h-6 w-6 text-neutral-600"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 24"
+										{#if !missingCovers.has(coverUrl(book))}
+											<img
+												src={coverUrl(book)}
+												alt={book.title}
+												loading="lazy"
+												class="block h-auto w-full"
+												onerror={() => markCoverMissing(coverUrl(book))}
+											/>
+										{:else}
+											<div
+												class="flex min-h-52 w-full flex-col items-center justify-center p-2 text-center"
 											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													stroke-width="1.5"
-													d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-												/>
-											</svg>
-											<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
-										</div>
+												<svg
+													class="mb-1 h-6 w-6 text-neutral-600"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="1.5"
+														d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+													/>
+												</svg>
+												<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
+											</div>
+										{/if}
 
 										<div
 											class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
@@ -500,7 +551,7 @@
 												</p>
 											{/if}
 											{#if onBookClick}
-												<p class="mt-0.5 text-[10px] text-blue-400">Copy to shelf</p>
+												<p class="mt-0.5 text-[10px] text-blue-400">Details &amp; shelves</p>
 											{/if}
 											<p class="mt-0.5 text-[10px] text-emerald-300">Download local file</p>
 										</div>

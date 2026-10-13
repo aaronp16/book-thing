@@ -5,7 +5,7 @@
  * MAM may rotate the mam_id cookie in responses, so we track the latest value.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { env } from './env.js';
 import type { MamEntry, BookResult, PersonInfo, SearchField } from '$lib/types.js';
@@ -14,6 +14,7 @@ const SEARCH_URL = 'https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php'
 const TORRENT_URL = 'https://www.myanonamouse.net/tor/download.php';
 const BROWSE_URL = 'https://www.myanonamouse.net/tor/browse.php';
 const SEEDBOX_URL = 'https://t.myanonamouse.net/json/dynamicSeedbox.php';
+const USER_URL = 'https://www.myanonamouse.net/jsonLoad.php';
 const PAGE_SIZE = 20;
 
 /** MAM allows one seedbox IP change per hour; check slightly less often than that */
@@ -66,9 +67,10 @@ const EBOOK_CATEGORIES = [
 
 /**
  * Persisted session file. MAM rotates mam_id via Set-Cookie and the old value
- * stops working, so the latest one must survive restarts.
+ * stops working, so the latest one must survive restarts. Override with
+ * MAM_SESSION_FILE when dev and prod share a BOOKS_DIR.
  */
-const SESSION_FILE = path.join(env.BOOKS_DIR, '.mam_session.json');
+const SESSION_FILE = env.MAM_SESSION_FILE || path.join(env.BOOKS_DIR, '.mam_session.json');
 
 interface PersistedSession {
 	/** Latest mam_id seen from MAM */
@@ -105,6 +107,7 @@ function persistMamId(mamId: string): void {
 		updatedAt: new Date().toISOString()
 	};
 	try {
+		mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
 		writeFileSync(SESSION_FILE, JSON.stringify(session, null, '\t'), { mode: 0o600 });
 	} catch (err) {
 		console.error('[mam-client] Failed to persist rotated mam_id:', err);
@@ -140,7 +143,6 @@ function trackCookieRotation(response: Response): void {
 
 		const newId = mamIdMatch[1];
 		if (newId && newId !== 'deleted' && newId !== getMamId()) {
-			console.log('[mam-client] Cookie rotated, updating mam_id');
 			currentMamId = newId;
 			persistMamId(newId);
 		}
@@ -287,6 +289,47 @@ export async function downloadTorrentFile(torrentId: number): Promise<Buffer> {
 
 	const arrayBuffer = await response.arrayBuffer();
 	return Buffer.from(arrayBuffer);
+}
+
+export interface MamAccount {
+	/** User class, e.g. "VIP", "Power User" */
+	classname: string;
+	/** VIP expiry as an ISO timestamp, or null when not VIP */
+	vipUntil: string | null;
+}
+
+const ACCOUNT_CACHE_MS = 60 * 60 * 1000;
+let accountCache: { account: MamAccount; fetchedAt: number } | null = null;
+
+/**
+ * Fetch the user's class and VIP expiry from MAM. Cached for an hour since
+ * it only changes when VIP is bought or runs out.
+ */
+export async function getAccount(): Promise<MamAccount> {
+	if (accountCache && Date.now() - accountCache.fetchedAt < ACCOUNT_CACHE_MS) {
+		return accountCache.account;
+	}
+	if (!getMamId() || !env.MAM_UID) {
+		throw new Error('MAM_ID and MAM_UID environment variables are required');
+	}
+
+	const response = await fetch(USER_URL, { headers: buildHeaders() });
+	trackCookieRotation(response);
+
+	if (!response.ok) {
+		throwMamError(response, 'Failed to load MAM account');
+	}
+
+	const data: { classname?: string; vip_until?: string | null } = await response.json();
+	// MAM returns "YYYY-MM-DD HH:MM:SS" in UTC
+	const vipUntil = data.vip_until ? new Date(data.vip_until.replace(' ', 'T') + 'Z') : null;
+
+	const account: MamAccount = {
+		classname: data.classname ?? '',
+		vipUntil: vipUntil && !isNaN(vipUntil.getTime()) ? vipUntil.toISOString() : null
+	};
+	accountCache = { account, fetchedAt: Date.now() };
+	return account;
 }
 
 interface SeedboxResponse {

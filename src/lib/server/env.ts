@@ -14,6 +14,8 @@ export const env = {
 	MAM_UID: svelteEnv.MAM_UID || '',
 	/** Book download directory (for library scanning) */
 	BOOKS_DIR: svelteEnv.BOOKS_DIR || './books',
+	/** Where the rotated mam_id is persisted (default: $BOOKS_DIR/.mam_session.json) */
+	MAM_SESSION_FILE: svelteEnv.MAM_SESSION_FILE || '',
 	/** qBittorrent WebUI URL (e.g., http://localhost:8080) */
 	QB_URL: svelteEnv.QB_URL || 'http://localhost:8080',
 	/** qBittorrent WebUI username */

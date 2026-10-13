@@ -13,7 +13,11 @@ import type { MamEntry, BookResult, PersonInfo, SearchField } from '$lib/types.j
 const SEARCH_URL = 'https://www.myanonamouse.net/tor/js/loadSearchJSONbasic.php';
 const TORRENT_URL = 'https://www.myanonamouse.net/tor/download.php';
 const BROWSE_URL = 'https://www.myanonamouse.net/tor/browse.php';
+const SEEDBOX_URL = 'https://t.myanonamouse.net/json/dynamicSeedbox.php';
 const PAGE_SIZE = 20;
+
+/** MAM allows one seedbox IP change per hour; check slightly less often than that */
+const SEEDBOX_INTERVAL_MS = 61 * 60 * 1000;
 
 /**
  * E-book category IDs on MAM
@@ -283,6 +287,59 @@ export async function downloadTorrentFile(torrentId: number): Promise<Buffer> {
 
 	const arrayBuffer = await response.arrayBuffer();
 	return Buffer.from(arrayBuffer);
+}
+
+interface SeedboxResponse {
+	Success: boolean;
+	msg: string;
+	ip?: string;
+	ASN?: number;
+	AS?: string;
+}
+
+/**
+ * Tell MAM's tracker our current public IP (dynamic seedbox API), so seeding
+ * keeps counting after the ISP changes our IP. Requires the session to have
+ * "Allow Session to set Dynamic Seedbox" enabled. MAM answers "No change" when
+ * the IP is already current, so it's safe to call on a timer.
+ */
+export async function updateSeedboxIp(): Promise<void> {
+	if (!getMamId()) return;
+
+	try {
+		const response = await fetch(SEEDBOX_URL, { headers: buildHeaders() });
+		trackCookieRotation(response);
+
+		const data = (await response.json().catch(() => null)) as SeedboxResponse | null;
+		const msg = data?.msg ?? `${response.status} ${response.statusText}`;
+
+		if (data?.Success) {
+			const where = data.ip ? ` (${data.ip}${data.AS ? `, ${data.AS}` : ''})` : '';
+			console.log(`[mam-client] Seedbox IP: ${msg}${where}`);
+		} else if (response.status === 429) {
+			// Changed within the last hour; the next run will pick it up
+			console.log(`[mam-client] Seedbox IP: ${msg}`);
+		} else {
+			console.error(
+				`[mam-client] Seedbox IP update failed: ${msg}. Check the MAM session has ` +
+					`"Allow Session to set Dynamic Seedbox" enabled.`
+			);
+		}
+	} catch (err) {
+		console.error('[mam-client] Seedbox IP update failed:', err);
+	}
+}
+
+let seedboxTimer: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Update the seedbox IP now and then periodically
+ */
+export function startSeedboxUpdates(): void {
+	if (seedboxTimer) return;
+	void updateSeedboxIp();
+	seedboxTimer = setInterval(updateSeedboxIp, SEEDBOX_INTERVAL_MS);
+	seedboxTimer.unref();
 }
 
 /**

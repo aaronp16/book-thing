@@ -1,6 +1,6 @@
 # book-thing
 
-A SvelteKit web interface for searching and downloading books from MyAnonamouse with a built-in torrent client.
+A SvelteKit web interface for searching and downloading books from MyAnonamouse, using qBittorrent for downloading and seeding.
 
 ## Quick Reference
 
@@ -22,15 +22,14 @@ npm run check         # Run svelte-check
 
 **book-thing** is a self-hosted web app that:
 - Searches MyAnonamouse's catalog via their JSON API
-- Downloads books via a built-in WebTorrent client (no external torrent client needed)
-- Seeds completed downloads automatically
-- Persists torrent state across restarts
-- Shows download progress, speeds, peers, and seeding status
+- Sends `.torrent` files to an external qBittorrent instance via its WebUI API
+- Copies completed downloads into the book library
+- Shows download progress, speeds, peers, and seeding status (read from qBittorrent)
 
 ### Tech Stack
 - **Frontend**: SvelteKit 2, Svelte 5 (runes), Tailwind CSS v4
 - **Backend**: SvelteKit server routes (Node.js adapter for Docker)
-- **Torrent Client**: WebTorrent (in-process, headless)
+- **Torrent Client**: qBittorrent (external, via WebUI API)
 - **Containerization**: Docker + docker-compose with volume mount for `/books`
 
 ### Environment Variables
@@ -39,7 +38,11 @@ npm run check         # Run svelte-check
 | `MAM_ID` | (required) | MyAnonamouse session cookie (`mam_id`) |
 | `MAM_UID` | (required) | MyAnonamouse user ID |
 | `BOOKS_DIR` | `./books` (dev) / `/books` (Docker) | Download directory (volume mount) |
-| `TORRENT_PORT` | `6881` | Port for incoming torrent connections |
+| `QB_URL` | `http://localhost:8080` | qBittorrent WebUI URL |
+| `QB_USERNAME` | `admin` | qBittorrent WebUI username |
+| `QB_PASSWORD` | (empty) | qBittorrent WebUI password |
+| `QB_CATEGORY` | `books` | qBittorrent category for book downloads |
+| `QB_SAVE_PATH` | (category default) | Override qBittorrent save path |
 
 ---
 
@@ -102,7 +105,6 @@ Returns the `.torrent` file binary.
 ```
 book-thing/
 ├── CLAUDE.md                  # This file
-├── PLAN.md                    # Full implementation plan
 ├── docker-compose.yml         # Docker orchestration
 ├── Dockerfile                 # Container build
 ├── package.json
@@ -131,42 +133,32 @@ book-thing/
 │       └── server/
 │           ├── env.ts             # Environment config
 │           ├── mam-client.ts      # MAM API wrapper
-│           ├── torrent-engine.ts  # WebTorrent wrapper
-│           ├── downloader.ts      # Download orchestrator
-│           └── library.ts         # Scan book directory
+│           ├── qbittorrent-client.ts  # qBittorrent WebUI API client
+│           ├── downloader.ts      # Download orchestrator (MAM → qBittorrent)
+│           ├── library.ts         # Copy completed books into library
+│           ├── fs-library.ts      # Scan book directory
+│           └── fs-shelves.ts      # Shelves
 └── books/                         # Volume mount point (gitignored)
-    └── .torrents/                 # Persisted .torrent files
 ```
 
 ---
 
 ## Key Implementation Details
 
-### WebTorrent (In-Process Torrent Client)
-```typescript
-import WebTorrent from 'webtorrent';
-const client = new WebTorrent({ torrentPort: env.TORRENT_PORT });
-
-// Add torrent from buffer
-const torrent = client.add(torrentBuffer, { path: env.BOOKS_DIR });
-
-// Progress events
-torrent.on('download', () => {
-  console.log(torrent.progress);       // 0.0 to 1.0
-  console.log(torrent.downloadSpeed);  // bytes/sec
-  console.log(torrent.numPeers);       // connected peers
-});
-
-// Completed - auto-seeds
-torrent.on('done', () => {
-  console.log('Seeding:', torrent.uploaded);
-});
-```
-
-### Torrent Persistence
-On add: save `.torrent` buffer to `$BOOKS_DIR/.torrents/{infoHash}.torrent`
-On startup: scan `.torrents/` dir and `client.add()` each file for seeding
+### qBittorrent
+`downloader.ts` fetches the `.torrent` from MAM, computes its info hash
+(`computeInfoHash`), and adds it to qBittorrent under `QB_CATEGORY`. Progress is
+polled from qBittorrent and streamed to the UI over SSE (`/api/progress/[id]`).
+qBittorrent handles seeding and persists its own torrent state.
 
 ### MAM Cookie Rotation
 MAM may rotate the `mam_id` cookie in responses. The client tracks the latest
-value from `Set-Cookie` headers and uses it for subsequent requests.
+value from `Set-Cookie` headers, uses it for subsequent requests, and persists it
+to `$BOOKS_DIR/.mam_session.json` so it survives restarts.
+
+### Dynamic Seedbox IP
+On server start (`init` in `hooks.server.ts`) and every 61 minutes,
+`updateSeedboxIp()` calls `https://t.myanonamouse.net/json/dynamicSeedbox.php`
+so MAM's tracker accepts qBittorrent's announces after the ISP changes our IP.
+The MAM session must be ASN-locked with "Allow Session to set Dynamic Seedbox"
+enabled. MAM rate-limits changes to once per hour (429 "Last change too recent").

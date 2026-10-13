@@ -14,7 +14,6 @@ declare global {
 			MAM_ID?: string;
 			MAM_UID?: string;
 			BOOKS_DIR?: string;
-			TORRENT_PORT?: string;
 		}
 	}
 }

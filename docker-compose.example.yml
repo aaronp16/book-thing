@@ -8,9 +8,6 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3000"
-      # Torrent port - needed for seeding/peer connections
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
     volumes:
       # Mount your book library directory
       - /path/to/your/books:/books
@@ -18,6 +15,9 @@ services:
       # Required: MyAnonamouse credentials
       - MAM_ID=your_mam_id_here
       - MAM_UID=your_uid_here
-      # Optional: Override torrent port (default: 6881)
-      # - TORRENT_PORT=6881
+      # Required: qBittorrent WebUI
+      - QB_URL=http://qbittorrent:8080
+      - QB_USERNAME=admin
+      - QB_PASSWORD=your_qbittorrent_password
+      - QB_CATEGORY=books
       - NODE_ENV=production

@@ -24,6 +24,7 @@ interface GroupedLibraryBook {
 	relativePath: string;
 	extension: string;
 	size: number;
+	downloadFilename: string;
 	shelfNames: string[];
 	copyCount: number;
 }
@@ -65,6 +66,7 @@ export const GET: RequestHandler = async ({ url }) => {
 					relativePath: book.relativePath,
 					extension: book.extension,
 					size: book.size,
+					downloadFilename: book.downloadFilename,
 					shelfNames: [book.shelf],
 					copyCount: 1
 				});
@@ -85,6 +87,7 @@ export const GET: RequestHandler = async ({ url }) => {
 				existing.relativePath = book.relativePath;
 				existing.extension = book.extension;
 				existing.size = book.size;
+				existing.downloadFilename = book.downloadFilename;
 			}
 		}
 

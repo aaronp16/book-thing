@@ -1,6 +1,8 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
+import { readBookMetadata } from './book-metadata.js';
 import { ensureShelfDirectory, getShelfPath, listShelfDirectories } from './fs-shelves.js';
 
 export const FILESYSTEM_EBOOK_EXTENSIONS = new Set([
@@ -34,6 +36,8 @@ export interface FilesystemLibraryItem {
 	modifiedAt: string;
 	title: string;
 	author: string;
+	/** "Title - Author [version].ext"; changes whenever the file does */
+	downloadFilename: string;
 }
 
 interface CachedFilesystemLibraryItem {
@@ -44,8 +48,8 @@ interface CachedFilesystemLibraryItem {
 const libraryItemCache = new Map<string, CachedFilesystemLibraryItem>();
 
 /**
- * Derive title/author from a "Title - Author.ext" filename.
- * Placeholder until proper metadata handling is rebuilt.
+ * Derive title/author from a "Title - Author.ext" filename. Fallback for when
+ * a book has no embedded metadata; see readTitleAuthor.
  */
 export function parseBookFilename(filename: string): { title: string; author: string } {
 	const stem = path.basename(filename, path.extname(filename));
@@ -55,6 +59,45 @@ export function parseBookFilename(filename: string): { title: string; author: st
 		return { title: dashMatch[1].trim(), author: dashMatch[2].trim() };
 	}
 	return { title: cleaned, author: 'Unknown' };
+}
+
+/** Calibre and others write these when the author is unknown */
+const PLACEHOLDER_AUTHORS = new Set(['unknown', 'unknown author', 'various']);
+
+/**
+ * Title and author for a book: from its embedded metadata (EPUB/KEPUB), else
+ * parsed from the filename.
+ */
+export async function readTitleAuthor(
+	absolutePath: string
+): Promise<{ title: string; author: string }> {
+	const fromFilename = parseBookFilename(absolutePath);
+	const metadata = await readBookMetadata(absolutePath).catch(() => null);
+	const authors = (metadata?.authors ?? []).filter(
+		(a) => !PLACEHOLDER_AUTHORS.has(a.toLowerCase())
+	);
+	return {
+		title: metadata?.title || fromFilename.title,
+		author: authors.length ? authors.join(', ') : fromFilename.author
+	};
+}
+
+/**
+ * Download name with a short hash of the file's version. Kobo caches cover
+ * thumbnails per file, so a new name after a cover change makes it pick up
+ * the new art. (Cover changes keep the mtime but change the size.)
+ */
+function buildDownloadFilename(
+	absolutePath: string,
+	stat: { mtimeMs: number; size: number }
+): string {
+	const ext = path.extname(absolutePath);
+	const stem = path.basename(absolutePath, ext);
+	const version = createHash('sha1')
+		.update(`${stat.mtimeMs}:${stat.size}`)
+		.digest('hex')
+		.slice(0, 6);
+	return `${stem} [${version}]${ext}`;
 }
 
 function isSupportedBookFile(filename: string): boolean {
@@ -138,7 +181,7 @@ async function readLibraryItemFromFile(
 		return cached.item;
 	}
 
-	const { title, author } = parseBookFilename(absolutePath);
+	const { title, author } = await readTitleAuthor(absolutePath);
 	const item = {
 		id: encodeLibraryItemId(relativePath),
 		bookKey: encodeBookKey(relativePath),
@@ -150,7 +193,8 @@ async function readLibraryItemFromFile(
 		size: stat.size,
 		modifiedAt: stat.mtime.toISOString(),
 		title,
-		author
+		author,
+		downloadFilename: buildDownloadFilename(absolutePath, stat)
 	};
 
 	libraryItemCache.set(relativePath, { cacheKey, item });

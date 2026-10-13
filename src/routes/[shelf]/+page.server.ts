@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { scanFilesystemLibrary } from '$lib/server/fs-library.js';
@@ -25,7 +24,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		author: item.author,
 		extension: item.extension,
 		size: item.size,
-		downloadFilename: path.basename(item.path)
+		downloadFilename: item.downloadFilename
 	}));
 
 	return {

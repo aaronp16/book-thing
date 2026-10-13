@@ -39,6 +39,7 @@
 		relativePath?: string;
 		extension?: string;
 		size?: number;
+		downloadFilename?: string;
 	}
 
 	const LIBRARY_COLUMN_COUNT = 4;
@@ -62,27 +63,6 @@
 
 	function markCoverMissing(url: string) {
 		missingCovers = new Set(missingCovers).add(url);
-	}
-
-	/** Short FNV-1a hash, for putting a file version into download filenames */
-	function shortHash(input: string): string {
-		let hash = 0x811c9dc5;
-		for (let i = 0; i < input.length; i++) {
-			hash ^= input.charCodeAt(i);
-			hash = Math.imul(hash, 0x01000193);
-		}
-		return (hash >>> 0).toString(16).padStart(8, '0').slice(0, 6);
-	}
-
-	/**
-	 * "Title - Author [a1b2c3].epub". Kobo caches cover thumbnails per file, so
-	 * a new name after a cover change makes it pick up the new art.
-	 */
-	function downloadFilename(book: LibraryBook): string {
-		const name = (book.relativePath ?? book.path).split('/').pop() ?? 'book';
-		const dot = name.lastIndexOf('.');
-		const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
-		return `${stem} [${shortHash(fileVersion(book))}]${ext}`;
 	}
 	let loading = $state(false);
 	let error = $state<string | null>(null);
@@ -251,7 +231,7 @@
 
 	function handleLocalDownload(book: LibraryBook, event: MouseEvent) {
 		event.stopPropagation();
-		const url = `/api/library/${book.id}/download/${encodeURIComponent(downloadFilename(book))}`;
+		const url = `/api/library/${book.id}/download/${encodeURIComponent(book.downloadFilename ?? book.title)}`;
 		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 </script>
